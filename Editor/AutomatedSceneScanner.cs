@@ -25,12 +25,17 @@ namespace VisualValidator.Editor
     {
         public static void RunHeadlessScan()
         {
-            bool initialSRPState = GraphicsSettings.useScriptableRenderPipelineBatching;
-            GraphicsSettings.useScriptableRenderPipelineBatching = false;
-
             string projectRoot = Directory.GetCurrentDirectory();
             string outputDir = Path.Combine(projectRoot, "ValidationCaptures");
-            if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
+
+            if (Directory.Exists(outputDir))
+            {
+                Directory.Delete(outputDir, true);
+            }
+            Directory.CreateDirectory(outputDir);
+
+            bool initialSRPState = GraphicsSettings.useScriptableRenderPipelineBatching;
+            GraphicsSettings.useScriptableRenderPipelineBatching = false;
 
             int totalScenes = SceneManager.sceneCountInBuildSettings;
 
@@ -41,6 +46,7 @@ namespace VisualValidator.Editor
                 SceneManager.SetActiveScene(scene);
                 Physics.SyncTransforms();
 
+                // Use existing points in the scene
                 var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include);
 
                 if (points.Length == 0) continue;
@@ -93,7 +99,6 @@ namespace VisualValidator.Editor
             cam.targetTexture = rt;
 
             cam.Render(); 
-            
             GL.Clear(true, true, Color.black);
             cam.Render();
 
