@@ -30,10 +30,13 @@ namespace VisualValidator.Editor
 
             if (Directory.Exists(outputDir))
             {
-                string[] files = Directory.GetFiles(outputDir);
-                foreach (string file in files)
+                foreach (string file in Directory.GetFiles(outputDir))
                 {
-                    try { File.Delete(file); } catch {}
+                    try { File.Delete(file); } catch (Exception e) { Debug.LogWarning($"Could not delete file {file}: {e.Message}"); }
+                }
+                foreach (string dir in Directory.GetDirectories(outputDir))
+                {
+                    try { Directory.Delete(dir, true); } catch (Exception e) { Debug.LogWarning($"Could not delete directory {dir}: {e.Message}"); }
                 }
             }
             else
