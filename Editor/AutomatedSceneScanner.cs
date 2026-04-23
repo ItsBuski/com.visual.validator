@@ -10,6 +10,16 @@ using System;
 
 namespace VisualValidator.Editor
 {
+    [Serializable]
+    public class CaptureMetadata
+    {
+        public string timestamp;
+        public string scene;
+        public string pointID;
+        public Vector3 coordinates;
+        public Quaternion rotation;
+    }
+
     public static class AutomatedSceneScanner
     {
         public static void RunHeadlessScan()
@@ -18,11 +28,11 @@ namespace VisualValidator.Editor
             if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
 
             int totalScenes = SceneManager.sceneCountInBuildSettings;
-            Debug.Log($"[Validator] STARTING SCAN. Scenes in Build Settings: {totalScenes}");
+            Debug.Log($"[Visual Validator] STARTING SCAN. Scenes in Build Settings: {totalScenes}");
 
             if (totalScenes == 0)
             {
-                Debug.LogError("[Validator] ERROR: No scenes found in Build Settings! Add scenes to File > Build Settings.");
+                Debug.LogError("[Visual Validator] ERROR: No scenes found in Build Settings!");
                 EditorApplication.Exit(1);
                 return;
             }
@@ -30,13 +40,14 @@ namespace VisualValidator.Editor
             for (int i = 0; i < totalScenes; i++)
             {
                 string scenePath = SceneUtility.GetScenePathByBuildIndex(i);
-                Debug.Log($"[Validator] Opening Scene ({i+1}/{totalScenes}): {scenePath}");
-                
+                Debug.Log($"[Visual Validator] Opening Scene ({i + 1}/{totalScenes}): {scenePath}");
+
                 EditorSceneManager.OpenScene(scenePath);
                 Physics.SyncTransforms();
 
+                // Find points (including inactive ones)
                 var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include);
-                Debug.Log($"[Validator] Points found in scene: {points.Length}");
+                Debug.Log($"[Visual Validator] Points found in scene: {points.Length}");
 
                 if (points.Length == 0) continue;
 
@@ -58,12 +69,14 @@ namespace VisualValidator.Editor
                         GL.Clear(true, true, Color.black);
 
                         string baseName = $"{SceneManager.GetActiveScene().name}_{p.pointID}_R{angle}";
-                        
-                        byte[] bytes = CaptureToBytes(cam);
-                        File.WriteAllBytes(Path.Combine(outputDir, baseName + "_FrameA.png"), bytes);
 
-                        // Meta
-                        CaptureMetadata meta = new CaptureMetadata {
+                        // Capture Frame A
+                        byte[] bytesA = CaptureToBytes(cam);
+                        File.WriteAllBytes(Path.Combine(outputDir, baseName + "_FrameA.png"), bytesA);
+
+                        // Save Metadata
+                        CaptureMetadata meta = new CaptureMetadata
+                        {
                             timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                             scene = SceneManager.GetActiveScene().name,
                             pointID = p.pointID,
@@ -72,7 +85,7 @@ namespace VisualValidator.Editor
                         };
                         File.WriteAllText(Path.Combine(outputDir, baseName + "_Meta.json"), JsonUtility.ToJson(meta, true));
 
-                        // Frame B
+                        // Capture Frame B (Jitter)
                         Vector3 originalPos = cam.transform.position;
                         cam.transform.position += cam.transform.right * 0.0002f;
                         byte[] bytesB = CaptureToBytes(cam);
@@ -82,8 +95,8 @@ namespace VisualValidator.Editor
                 }
                 UnityEngine.Object.DestroyImmediate(camObj);
             }
-            
-            Debug.Log("[Validator] BATCH SCAN FINISHED.");
+
+            Debug.Log("[Visual Validator] BATCH SCAN FINISHED.");
             EditorApplication.Exit(0);
         }
 
@@ -97,7 +110,7 @@ namespace VisualValidator.Editor
             tex.ReadPixels(new Rect(0, 0, 1920, 1080), 0, 0);
             tex.Apply();
             byte[] bytes = tex.EncodeToPNG();
-            
+
             cam.targetTexture = null;
             RenderTexture.active = null;
             RenderTexture.ReleaseTemporary(rt);
