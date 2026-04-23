@@ -30,14 +30,22 @@ namespace VisualValidator.Editor
 
             if (Directory.Exists(outputDir))
             {
-                Directory.Delete(outputDir, true);
+                string[] files = Directory.GetFiles(outputDir);
+                foreach (string file in files)
+                {
+                    try { File.Delete(file); } catch {}
+                }
             }
-            Directory.CreateDirectory(outputDir);
+            else
+            {
+                Directory.CreateDirectory(outputDir);
+            }
 
             bool initialSRPState = GraphicsSettings.useScriptableRenderPipelineBatching;
             GraphicsSettings.useScriptableRenderPipelineBatching = false;
 
             int totalScenes = SceneManager.sceneCountInBuildSettings;
+            Debug.Log($"[Visual Validator] Starting Headless Scan. Scenes: {totalScenes}");
 
             for (int i = 0; i < totalScenes; i++)
             {
@@ -46,8 +54,8 @@ namespace VisualValidator.Editor
                 SceneManager.SetActiveScene(scene);
                 Physics.SyncTransforms();
 
-                // Use existing points in the scene
                 var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include);
+                Debug.Log($"[Visual Validator] Scene: {scene.name} | Points: {points.Length}");
 
                 if (points.Length == 0) continue;
 
@@ -90,6 +98,7 @@ namespace VisualValidator.Editor
             }
 
             GraphicsSettings.useScriptableRenderPipelineBatching = initialSRPState;
+            Debug.Log("[Visual Validator] Batch Scan Complete.");
             EditorApplication.Exit(0);
         }
 
@@ -113,7 +122,6 @@ namespace VisualValidator.Editor
             RenderTexture.active = null;
             RenderTexture.ReleaseTemporary(rt);
             UnityEngine.Object.DestroyImmediate(tex);
-            
             GL.Flush();
         }
     }

@@ -21,8 +21,6 @@ namespace VisualValidator.Runtime
         public float minHeightFromGround = 1.6f;
         public float minDistanceToCeiling = 1.0f;
         public float clearanceRadius = 0.4f;
-
-        [Header("Safety Filter")]
         public float minVerticalSeparation = 2.0f;
 
         [Header("Prefab")]
@@ -101,6 +99,16 @@ namespace VisualValidator.Runtime
             if (script != null) script.Initialize(obstacleLayers, minHeightFromGround);
 
             Undo.RegisterCreatedObjectUndo(obj, "Create Point");
+#endif
+        }
+
+        [ContextMenu("Clear Points")]
+        public void ClearPoints()
+        {
+#if UNITY_EDITOR
+            var children = new List<GameObject>();
+            foreach (Transform child in transform) children.Add(child.gameObject);
+            foreach (var child in children) Undo.DestroyObjectImmediate(child);
 #endif
         }
 
