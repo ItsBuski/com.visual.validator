@@ -5,9 +5,18 @@ using UnityEngine.SceneManagement;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
+using System;
+using VisualValidator.Runtime;
 
 namespace VisualValidator.Editor
 {
+    [Serializable]
+    public class ReportData : CaptureMetadata
+    {
+        public List<string> errors = new List<string>();
+        public bool is_bug;
+    }
+
     public class ValidatorReportWindow : EditorWindow
     {
         private List<string> reports = new List<string>();
@@ -15,6 +24,7 @@ namespace VisualValidator.Editor
         private string capturesPath;
         private string expandedReport = "";
         private Texture2D textureA, textureB;
+        private ReportData currentData;
 
         [MenuItem("Window/Visual Validator/Report Explorer")]
         public static void ShowWindow() => GetWindow<ValidatorReportWindow>("Report Explorer");
@@ -53,7 +63,7 @@ namespace VisualValidator.Editor
             EditorGUILayout.EndVertical();
 
             scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
-            if (reports.Count == 0) EditorGUILayout.HelpBox("No issues found. Everything looks good!", MessageType.Info);
+            if (reports.Count == 0) EditorGUILayout.HelpBox("No issues found.", MessageType.Info);
 
             foreach (string r in reports) DrawReportRow(r);
             EditorGUILayout.EndScrollView();
@@ -67,36 +77,62 @@ namespace VisualValidator.Editor
             EditorGUILayout.BeginHorizontal();
             GUILayout.Label(Path.GetFileNameWithoutExtension(fullPath).Replace("_REPORT", ""), EditorStyles.miniBoldLabel);
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button(isExpanded ? "CLOSE" : "INSPECT IMAGES", GUILayout.Width(110)))
+            if (GUILayout.Button(isExpanded ? "CLOSE" : "INSPECT", GUILayout.Width(80)))
             {
                 if (isExpanded) { expandedReport = ""; ClearTextures(); }
-                else { expandedReport = fullPath; LoadTextures(fullPath); }
+                else { expandedReport = fullPath; LoadReportContent(fullPath); }
             }
             EditorGUILayout.EndHorizontal();
 
-            EditorGUILayout.BeginHorizontal();
             GUI.backgroundColor = new Color(0.3f, 0.8f, 0.4f);
             if (GUILayout.Button("TELEPORT TO SOURCE", GUILayout.Height(22))) Teleport(fullPath);
             GUI.backgroundColor = Color.white;
-            EditorGUILayout.EndHorizontal();
 
-            if (isExpanded && textureA != null)
+            if (isExpanded && textureA != null && currentData != null)
             {
                 float w = position.width - 40;
-                float h = (w / 2f) * 0.5625f; // 16:9 ratio
+                float h = (w / 2f) * 0.5625f;
                 EditorGUILayout.BeginHorizontal();
                 GUILayout.Box(textureA, GUILayout.Width(w/2), GUILayout.Height(h));
                 GUILayout.Box(textureB, GUILayout.Width(w/2), GUILayout.Height(h));
                 EditorGUILayout.EndHorizontal();
+
+                EditorGUILayout.Space(5);
+                
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                GUILayout.Label("DATA INSPECTOR", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField("Scene:", currentData.scene);
+                EditorGUILayout.LabelField("Point ID:", currentData.pointID);
+                EditorGUILayout.LabelField("Timestamp:", currentData.timestamp);
+                EditorGUILayout.LabelField("Position:", currentData.coordinates.ToString());
+                EditorGUILayout.LabelField("Rotation:", currentData.rotation.eulerAngles.ToString());
+                
+                if (currentData.errors != null && currentData.errors.Count > 0)
+                {
+                    EditorGUILayout.Space(5);
+                    GUILayout.Label("DETECTED ISSUES:", EditorStyles.boldLabel);
+                    GUI.color = new Color(1f, 0.4f, 0.4f);
+                    foreach (string err in currentData.errors)
+                    {
+                        GUILayout.Label($"• {err}", EditorStyles.wordWrappedLabel);
+                    }
+                    GUI.color = Color.white;
+                }
+                EditorGUILayout.EndVertical();
             }
             EditorGUILayout.EndVertical();
         }
 
-        private void LoadTextures(string path)
+        private void LoadReportContent(string path)
         {
             ClearTextures();
             textureA = Load(path.Replace("_REPORT.json", "_FrameA.png"));
             textureB = Load(path.Replace("_REPORT.json", "_FrameB.png"));
+            
+            if (File.Exists(path))
+            {
+                currentData = JsonUtility.FromJson<ReportData>(File.ReadAllText(path));
+            }
         }
 
         private Texture2D Load(string p)
@@ -114,7 +150,7 @@ namespace VisualValidator.Editor
             
             if (SceneManager.GetActiveScene().name != data.scene)
             {
-                EditorUtility.DisplayDialog("Wrong Scene", $"Point belongs to '{data.scene}'. Open that scene first.", "OK");
+                EditorUtility.DisplayDialog("Wrong Scene", "Load the correct scene before teleporting.", "OK");
                 return;
             }
 
@@ -123,7 +159,7 @@ namespace VisualValidator.Editor
             {
                 view.pivot = data.coordinates;
                 view.rotation = data.rotation;
-                view.size = 0f; // 1:1 view matching
+                view.size = 0f;
                 view.Repaint();
             }
         }

@@ -45,7 +45,6 @@ namespace VisualValidator.Editor
             GraphicsSettings.useScriptableRenderPipelineBatching = false;
 
             int totalScenes = SceneManager.sceneCountInBuildSettings;
-            Debug.Log($"[Visual Validator] Starting Headless Scan. Scenes: {totalScenes}");
 
             for (int i = 0; i < totalScenes; i++)
             {
@@ -55,8 +54,6 @@ namespace VisualValidator.Editor
                 Physics.SyncTransforms();
 
                 var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include);
-                Debug.Log($"[Visual Validator] Scene: {scene.name} | Points: {points.Length}");
-
                 if (points.Length == 0) continue;
 
                 GameObject camObj = new GameObject("ValidatorCam_Headless");
@@ -98,7 +95,6 @@ namespace VisualValidator.Editor
             }
 
             GraphicsSettings.useScriptableRenderPipelineBatching = initialSRPState;
-            Debug.Log("[Visual Validator] Batch Scan Complete.");
             EditorApplication.Exit(0);
         }
 
@@ -106,18 +102,14 @@ namespace VisualValidator.Editor
         {
             RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, RenderTextureFormat.ARGB32);
             cam.targetTexture = rt;
-
             cam.Render(); 
             GL.Clear(true, true, Color.black);
             cam.Render();
-
             RenderTexture.active = rt;
             Texture2D tex = new Texture2D(1920, 1080, TextureFormat.RGB24, false);
             tex.ReadPixels(new Rect(0, 0, 1920, 1080), 0, 0);
             tex.Apply();
-
             File.WriteAllBytes(path, tex.EncodeToPNG());
-
             cam.targetTexture = null;
             RenderTexture.active = null;
             RenderTexture.ReleaseTemporary(rt);

@@ -11,7 +11,7 @@ namespace VisualValidator.Runtime
         public string pointID;
         [Range(1, 8)] public int directionalShots = 6;
 
-        [Header("Dynamic Grounding (Sync from Generator)")]
+        [Header("Dynamic Grounding")]
         public float minHeightFromGround = 1.6f;
         public LayerMask groundLayer;
 
@@ -25,13 +25,10 @@ namespace VisualValidator.Runtime
         [ContextMenu("Regenerate ID")]
         public void GenerateAutoID()
         {
-            string sceneName = SceneManager.GetActiveScene().name;
-            if (string.IsNullOrEmpty(sceneName)) sceneName = "Untitled";
-
             var allPoints = Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include);
 
             int maxIndex = 0;
-            string pattern = $@"^{Regex.Escape(sceneName)}_(\d+)$";
+            string pattern = @"^P(\d+)$";
 
             foreach (var p in allPoints)
             {
@@ -44,7 +41,7 @@ namespace VisualValidator.Runtime
                 }
             }
 
-            pointID = $"{sceneName}_{maxIndex + 1:D2}";
+            pointID = $"P{(maxIndex + 1):D2}";
         }
 
         public void ApplyGroundConstraint()
