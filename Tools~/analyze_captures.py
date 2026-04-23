@@ -6,24 +6,22 @@ from pathlib import Path
 
 def analyze():
     try:
-        # 1. Obtain the captures directory from command line or use default
+        # Target directory from argument or project root
         if len(sys.argv) > 1:
             captures_dir = Path(sys.argv[1])
         else:
-            captures_dir = Path(__file__).parent / "ValidationCaptures"
+            captures_dir = Path(__file__).parent.parent.parent / "ValidationCaptures"
 
-        print(f"[Python] Analyzing: {captures_dir}")
+        print(f"[Python] Scanning directory: {captures_dir}")
 
         if not captures_dir.exists():
-            print(f"[Error] The folder does not exist: {captures_dir}")
+            print(f"[Error] Directory not found: {captures_dir}")
             return
 
-        # 2. Search for Meta.json files
         meta_files = list(captures_dir.glob("*_Meta.json"))
-        print(f"[Python] Found {len(meta_files)} metadata files.")
+        print(f"[Python] Found {len(meta_files)} captures to analyze.")
 
         for meta_path in meta_files:
-            # Replace the suffix to find the frames
             frame_a = meta_path.with_name(meta_path.name.replace("_Meta.json", "_FrameA.png"))
             frame_b = meta_path.with_name(meta_path.name.replace("_Meta.json", "_FrameB.png"))
             report_path = meta_path.with_name(meta_path.name.replace("_Meta.json", "_REPORT.json"))
@@ -31,7 +29,6 @@ def analyze():
             if not frame_a.exists() or not frame_b.exists():
                 continue
 
-            # Load images (OpenCV uses strings, Pathlib provides them with str())
             img_a = cv2.imread(str(frame_a))
             img_b = cv2.imread(str(frame_b))
 
@@ -40,40 +37,35 @@ def analyze():
 
             errors = []
 
-            # TEST: Z-Fighting (Difference between Frame A and Frame B)
+            # 1. Z-Fighting Check (Differential Pixel Analysis)
             diff = cv2.absdiff(img_a, img_b)
-            gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
-            # Sensitivity threshold: 20 brightness, > 500 affected pixels
-            if np.count_nonzero(gray_diff > 20) > 500:
-                errors.append("Z-Fighting detected")
+            gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+            if np.count_nonzero(gray > 25) > 400:
+                errors.append("Z-Fighting Detected")
 
-            # TEST: Magenta (Missing Shaders)
-            # In OpenCV the order is BGR
-            lower_magenta = np.array([250, 0, 250]) 
-            upper_magenta = np.array([255, 10, 255])
-            mask = cv2.inRange(img_a, lower_magenta, upper_magenta)
-            if np.count_nonzero(mask) > 100:
-                errors.append("Magenta Texture detected")
+            # 2. Magenta/Missing Shader Check
+            # BGR range for Unity's magenta (255, 0, 255)
+            mask = cv2.inRange(img_a, np.array([250, 0, 250]), np.array([255, 10, 255]))
+            if np.count_nonzero(mask) > 150:
+                errors.append("Magenta Texture Detected")
 
-            # 3. Save Report if there are errors
+            # 3. Final Report Generation
             if errors:
-                print(f"[!] Error in {meta_path.stem}: {errors}")
+                print(f"[!] Issue in {meta_path.stem}: {errors}")
                 with open(meta_path, 'r') as f:
                     data = json.load(f)
-                
                 data['errors'] = errors
                 data['is_bug'] = True
-                
                 with open(report_path, 'w') as f:
                     json.dump(data, f, indent=4)
             else:
-                # If the error was resolved, delete the old report
                 if report_path.exists():
                     report_path.unlink()
 
-        print("[Python] Analysis completed.")
+        print("[Python] Analysis cycle completed.")
+
     except Exception as e:
-        print(f"[CRASH PYTHON] A critical error occurred: {e}")
+        print(f"[CRITICAL] Python Crash: {e}")
 
 if __name__ == "__main__":
     analyze()
