@@ -2,10 +2,9 @@
 setlocal enabledelayedexpansion
 
 :: 1. PATH RESOLUTION
-:: %~dp0 is the directory where this script lives
 set "SCRIPT_DIR=%~dp0"
 
-:: Move one level up to get to the Project Root
+:: Subimos un nivel de forma segura
 pushd "%SCRIPT_DIR%.."
 set "PROJECT_ROOT=%CD%"
 popd
@@ -16,21 +15,25 @@ echo ====================================================
 echo [INFO] Script Path: %SCRIPT_DIR%
 echo [INFO] Project Root: %PROJECT_ROOT%
 
-:: 2. PROJECT VALIDATION
-if not exist "%PROJECT_ROOT%\ProjectSettings\ProjectVersion.txt" (
-    echo [ERROR] ProjectSettings not found at: %PROJECT_ROOT%
-    echo Please ensure this script is inside a subfolder of your Unity Project.
-    pause
-    exit /b 1
-)
+:: 2. PROJECT VALIDATION (Sin bloques de parentesis para evitar errores de ruta)
+if exist "%PROJECT_ROOT%\ProjectSettings\ProjectVersion.txt" goto :project_ok
+echo [ERROR] ProjectSettings not found at: %PROJECT_ROOT%
+echo Please verify that ProjectVersion.txt exists in that path.
+pause
+exit /b 1
+
+:project_ok
+echo [SUCCESS] Unity Project identified.
 
 :: 3. LOCATE UNITY VERSION
 for /f "tokens=2" %%a in ('findstr /C:"m_EditorVersion:" "%PROJECT_ROOT%\ProjectSettings\ProjectVersion.txt"') do (
     set "UNITY_VERSION=%%a"
 )
 
+echo [INFO] Target Unity Version: %UNITY_VERSION%
+
 set "UNITY_EXE="
-:: Search in common drives
+:: Busqueda en unidades comunes
 for %%d in (C D E F) do (
     if not defined UNITY_EXE (
         set "CHECK=%%d:\Program Files\Unity\Hub\Editor\!UNITY_VERSION!\Editor\Unity.exe"
@@ -38,11 +41,13 @@ for %%d in (C D E F) do (
     )
 )
 
-if not defined UNITY_EXE (
-    echo [ERROR] Unity !UNITY_VERSION! not found in Program Files.
-    pause
-    exit /b 1
-)
+if defined UNITY_EXE goto :unity_found
+echo [ERROR] Unity !UNITY_VERSION! not found.
+pause
+exit /b 1
+
+:unity_found
+echo [INFO] Unity Executable: !UNITY_EXE!
 
 :: 4. SCANNING PHASE
 echo [1/3] Launching Batch Scan...
