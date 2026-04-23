@@ -1,0 +1,7 @@
+{
+    "name": "VisualValidator.Runtime",
+    "references": [],
+    "includePlatforms": [],
+    "allowUnsafeCode": false,
+    "autoReferenced": true
+}

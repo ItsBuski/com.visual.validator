@@ -1,0 +1,10 @@
+{
+  "name": "com.visual.validator",
+  "version": "1.0.0",
+  "displayName": "Visual Bug Validator",
+  "description": "Z-Fighting & Missing Textures with OpenCV.",
+  "unity": "6000.0",
+  "author": {
+    "name": "Fabio Gonzalez Trujillo"
+  }
+}
