@@ -77,4 +77,4 @@ Due to permission restrictions in the Unity Package Cache (`Library/PackageCache
 * Ensure your project is free of **Compiler Errors** before launching the validation, as the `batchmode` process will fail otherwise.
 
 ---
-*Developed by Visual Validator Tools - 2026*
+*Developed by Fabio González Trujillo - 2026*
