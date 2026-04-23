@@ -25,21 +25,14 @@ namespace VisualValidator.Editor
     {
         public static void RunHeadlessScan()
         {
-            // Disabling batchers forces the engine to stop reusing stale draw states.
-            bool srpState = GraphicsSettings.useScriptableRenderPipelineBatching;
+            bool initialSRPState = GraphicsSettings.useScriptableRenderPipelineBatching;
             GraphicsSettings.useScriptableRenderPipelineBatching = false;
-
-#pragma warning disable 0618
-            bool dynamicBatchingState = PlayerSettings.dynamicBatching;
-            PlayerSettings.dynamicBatching = false;
-#pragma warning restore 0618
 
             string projectRoot = Directory.GetCurrentDirectory();
             string outputDir = Path.Combine(projectRoot, "ValidationCaptures");
             if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
 
             int totalScenes = SceneManager.sceneCountInBuildSettings;
-            Debug.Log($"[Visual Validator] Starting Headless Scan. Scenes found: {totalScenes}");
 
             for (int i = 0; i < totalScenes; i++)
             {
@@ -49,12 +42,10 @@ namespace VisualValidator.Editor
                 Physics.SyncTransforms();
 
                 var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include);
-                Debug.Log($"[Visual Validator] Scene: {scene.name} | Points: {points.Length}");
 
                 if (points.Length == 0) continue;
 
-                // Setup Clean Room Camera
-                GameObject camObj = new GameObject("Nuclear_ValidatorCam");
+                GameObject camObj = new GameObject("ValidatorCam_Headless");
                 Camera cam = camObj.AddComponent<Camera>();
                 cam.nearClipPlane = 0.05f;
                 cam.farClipPlane = 2000f;
@@ -74,11 +65,8 @@ namespace VisualValidator.Editor
 
                         string baseName = $"{scene.name}_{p.pointID}_R{angle}";
 
-                        // Pass 1: Throwaway render to force the GPU to rebuild the material pipeline.
-                        // Pass 2: Clean capture with fresh buffers.
                         CaptureAndSave(cam, Path.Combine(outputDir, baseName + "_FrameA.png"));
 
-                        // Save Metadata
                         CaptureMetadata meta = new CaptureMetadata {
                             timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                             scene = scene.name,
@@ -88,7 +76,6 @@ namespace VisualValidator.Editor
                         };
                         File.WriteAllText(Path.Combine(outputDir, baseName + "_Meta.json"), JsonUtility.ToJson(meta, true));
 
-                        // Frame B (Jitter)
                         cam.transform.position += cam.transform.right * 0.0002f;
                         CaptureAndSave(cam, Path.Combine(outputDir, baseName + "_FrameB.png"));
                     }
@@ -96,12 +83,7 @@ namespace VisualValidator.Editor
                 UnityEngine.Object.DestroyImmediate(camObj);
             }
 
-            GraphicsSettings.useScriptableRenderPipelineBatching = srpState;
-#pragma warning disable 0618
-            PlayerSettings.dynamicBatching = dynamicBatchingState;
-#pragma warning restore 0618
-
-            Debug.Log("[Visual Validator] Scan complete. Assets saved.");
+            GraphicsSettings.useScriptableRenderPipelineBatching = initialSRPState;
             EditorApplication.Exit(0);
         }
 
@@ -127,7 +109,6 @@ namespace VisualValidator.Editor
             RenderTexture.ReleaseTemporary(rt);
             UnityEngine.Object.DestroyImmediate(tex);
             
-            // Force the GPU to finish all tasks before the next position
             GL.Flush();
         }
     }
