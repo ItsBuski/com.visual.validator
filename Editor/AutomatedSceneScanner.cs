@@ -25,38 +25,39 @@ namespace VisualValidator.Editor
     {
         public static void RunHeadlessScan()
         {
-            string outputDir = Path.Combine(Directory.GetCurrentDirectory(), "ValidationCaptures");
+            // 1. GLOBAL SRP BATCHER SAFETY
+            // We disable the SRP Batcher to prevent material "ghosting" or buffer reuse 
+            // during rapid camera teleportation.
+            bool initialSRPState = GraphicsSettings.useScriptableRenderPipelineBatching;
+            GraphicsSettings.useScriptableRenderPipelineBatching = false;
+
+            string projectRoot = Directory.GetCurrentDirectory();
+            string outputDir = Path.Combine(projectRoot, "ValidationCaptures");
             if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
 
             int totalScenes = SceneManager.sceneCountInBuildSettings;
-            Debug.Log($"[Visual Validator] STARTING SCAN. Scenes in Build Settings: {totalScenes}");
-
-            if (totalScenes == 0)
-            {
-                Debug.LogError("[Visual Validator] ERROR: No scenes found in Build Settings!");
-                EditorApplication.Exit(1);
-                return;
-            }
+            Debug.Log($"[Visual Validator] Starting Scan. SRP Batcher disabled for safety.");
 
             for (int i = 0; i < totalScenes; i++)
             {
                 string scenePath = SceneUtility.GetScenePathByBuildIndex(i);
-                Debug.Log($"[Visual Validator] Opening Scene ({i + 1}/{totalScenes}): {scenePath}");
-
-                EditorSceneManager.OpenScene(scenePath);
+                Scene scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+                SceneManager.SetActiveScene(scene);
+                
                 Physics.SyncTransforms();
 
-                // Find points (including inactive ones)
                 var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include);
-                Debug.Log($"[Visual Validator] Points found in scene: {points.Length}");
-
                 if (points.Length == 0) continue;
 
                 GameObject camObj = new GameObject("ValidatorCam_Headless");
                 Camera cam = camObj.AddComponent<Camera>();
                 cam.nearClipPlane = 0.05f;
                 cam.farClipPlane = 2000f;
+                
+                // Ensure no post-processing or culling interference
                 cam.useOcclusionCulling = false;
+                cam.allowMSAA = false;
+                cam.allowDynamicResolution = false;
 
                 foreach (var p in points)
                 {
@@ -67,19 +68,19 @@ namespace VisualValidator.Editor
                         float angle = r * (360f / p.directionalShots);
                         cam.transform.position = p.transform.position;
                         cam.transform.rotation = Quaternion.Euler(0, angle, 0);
+                        
+                        // Force a clean GPU clear before rendering
                         GL.Clear(true, true, Color.black);
 
-                        string baseName = $"{SceneManager.GetActiveScene().name}_{p.pointID}_R{angle}";
+                        string baseName = $"{scene.name}_{p.pointID}_R{angle}";
 
                         // Capture Frame A
-                        byte[] bytesA = CaptureToBytes(cam);
-                        File.WriteAllBytes(Path.Combine(outputDir, baseName + "_FrameA.png"), bytesA);
+                        File.WriteAllBytes(Path.Combine(outputDir, baseName + "_FrameA.png"), CaptureToBytes(cam));
 
                         // Save Metadata
-                        CaptureMetadata meta = new CaptureMetadata
-                        {
+                        CaptureMetadata meta = new CaptureMetadata {
                             timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-                            scene = SceneManager.GetActiveScene().name,
+                            scene = scene.name,
                             pointID = p.pointID,
                             coordinates = cam.transform.position,
                             rotation = cam.transform.rotation
@@ -89,33 +90,40 @@ namespace VisualValidator.Editor
                         // Capture Frame B (Jitter)
                         Vector3 originalPos = cam.transform.position;
                         cam.transform.position += cam.transform.right * 0.0002f;
-                        byte[] bytesB = CaptureToBytes(cam);
-                        File.WriteAllBytes(Path.Combine(outputDir, baseName + "_FrameB.png"), bytesB);
+                        File.WriteAllBytes(Path.Combine(outputDir, baseName + "_FrameB.png"), CaptureToBytes(cam));
                         cam.transform.position = originalPos;
                     }
                 }
                 UnityEngine.Object.DestroyImmediate(camObj);
             }
-
-            Debug.Log("[Visual Validator] BATCH SCAN FINISHED.");
+            
+            // Restore SRP Batcher state
+            GraphicsSettings.useScriptableRenderPipelineBatching = initialSRPState;
+            
+            Debug.Log("[Visual Validator] Scan completed. SRP Batcher state restored.");
             EditorApplication.Exit(0);
         }
 
         private static byte[] CaptureToBytes(Camera cam)
         {
-            RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 32, RenderTextureFormat.ARGB32);
+            // Use 24-bit depth for high precision
+            RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, RenderTextureFormat.ARGB32);
             cam.targetTexture = rt;
+            
+            // Force the camera to render immediately
             cam.Render();
+            
             RenderTexture.active = rt;
             Texture2D tex = new Texture2D(1920, 1080, TextureFormat.RGB24, false);
             tex.ReadPixels(new Rect(0, 0, 1920, 1080), 0, 0);
             tex.Apply();
             byte[] bytes = tex.EncodeToPNG();
-
+            
             cam.targetTexture = null;
             RenderTexture.active = null;
             RenderTexture.ReleaseTemporary(rt);
             UnityEngine.Object.DestroyImmediate(tex);
+            
             return bytes;
         }
     }

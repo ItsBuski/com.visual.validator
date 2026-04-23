@@ -30,7 +30,6 @@ namespace VisualValidator.Runtime
 
         [Header("Gizmos Settings")]
         public Color areaColor = new Color(0f, 1f, 0.5f, 0.2f);
-        public bool alwaysShowGizmos = false;
 
         [ContextMenu("Generate Multi-Level Points")]
         public void GeneratePoints()
@@ -41,22 +40,21 @@ namespace VisualValidator.Runtime
 
             if (scanPointPrefab == null) return;
 
-            // EL CAMBIO: El Undo solo existe en el Editor
-            Undo.RecordObject(this, "Generate Multi-Level Points");
+            Undo.RecordObject(this, "Generate Points");
 
             float startX = transform.position.x - (areaSize.x / 2f);
             float startZ = transform.position.z - (areaSize.y / 2f);
-            int spawnedCount = 0;
+            int count = 0;
 
             for (float x = 0; x <= areaSize.x; x += spacing)
             {
                 for (float z = 0; z <= areaSize.y; z += spacing)
                 {
                     Vector3 origin = new Vector3(startX + x, transform.position.y + 500f, startZ + z);
-                    spawnedCount += ProcessVerticalStack(origin);
+                    count += ProcessVerticalStack(origin);
                 }
             }
-            Debug.Log($"[Visual Validator] {spawnedCount} points generated.");
+            Debug.Log($"[Visual Validator] Generated {count} points.");
 #endif
         }
 
@@ -71,21 +69,13 @@ namespace VisualValidator.Runtime
             {
                 if (Vector3.Dot(hit.normal, Vector3.up) > 0.5f)
                 {
-                    float candidateHeight = hit.point.y + minHeightFromGround;
-                    bool tooClose = false;
-                    foreach (float h in acceptedHeights)
-                    {
-                        if (Mathf.Abs(candidateHeight - h) < minVerticalSeparation)
-                        {
-                            tooClose = true;
-                            break;
-                        }
-                    }
+                    float targetY = hit.point.y + minHeightFromGround;
+                    bool tooClose = acceptedHeights.Any(h => Mathf.Abs(targetY - h) < minVerticalSeparation);
 
-                    if (!tooClose && IsPositionSafe(new Vector3(hit.point.x, candidateHeight, hit.point.z)))
+                    if (!tooClose && IsPositionSafe(new Vector3(hit.point.x, targetY, hit.point.z)))
                     {
-                        CreatePoint(new Vector3(hit.point.x, candidateHeight, hit.point.z));
-                        acceptedHeights.Add(candidateHeight);
+                        CreatePoint(new Vector3(hit.point.x, targetY, hit.point.z));
+                        acceptedHeights.Add(targetY);
                         count++;
                     }
                 }
@@ -96,7 +86,7 @@ namespace VisualValidator.Runtime
         private bool IsPositionSafe(Vector3 pos)
         {
             if (Physics.CheckSphere(pos, clearanceRadius, obstacleLayers)) return false;
-            if (Physics.Raycast(pos, Vector3.up, out RaycastHit ceilingHit, minDistanceToCeiling, obstacleLayers)) return false;
+            if (Physics.Raycast(pos, Vector3.up, out _, minDistanceToCeiling, obstacleLayers)) return false;
             return true;
         }
 
@@ -106,33 +96,15 @@ namespace VisualValidator.Runtime
             GameObject obj = (GameObject)PrefabUtility.InstantiatePrefab(scanPointPrefab);
             obj.transform.position = pos;
             obj.transform.SetParent(this.transform);
+            
+            var script = obj.GetComponent<CameraScanPoint>();
+            if (script != null) script.Initialize(obstacleLayers, minHeightFromGround);
 
-            CameraScanPoint pointScript = obj.GetComponent<CameraScanPoint>();
-            if (pointScript != null)
-            {
-                pointScript.Initialize(obstacleLayers, minHeightFromGround);
-            }
-
-            Undo.RegisterCreatedObjectUndo(obj, "Create Scan Point");
-#endif
-        }
-
-        [ContextMenu("Clear Points")]
-        public void ClearPoints()
-        {
-#if UNITY_EDITOR
-            var children = new List<GameObject>();
-            foreach (Transform child in transform) children.Add(child.gameObject);
-            foreach (var child in children) Undo.DestroyObjectImmediate(child);
+            Undo.RegisterCreatedObjectUndo(obj, "Create Point");
 #endif
         }
 
         private void OnDrawGizmosSelected()
-        {
-            DrawAreaGizmos();
-        }
-
-        private void DrawAreaGizmos()
         {
             Gizmos.matrix = transform.localToWorldMatrix;
             Gizmos.color = areaColor;
