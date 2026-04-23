@@ -103,7 +103,6 @@ namespace VisualValidator.Runtime
         private void CreatePoint(Vector3 pos)
         {
 #if UNITY_EDITOR
-            // EL CAMBIO: PrefabUtility también es solo de Editor
             GameObject obj = (GameObject)PrefabUtility.InstantiatePrefab(scanPointPrefab);
             obj.transform.position = pos;
             obj.transform.SetParent(this.transform);
@@ -124,7 +123,6 @@ namespace VisualValidator.Runtime
 #if UNITY_EDITOR
             var children = new List<GameObject>();
             foreach (Transform child in transform) children.Add(child.gameObject);
-            // EL CAMBIO: Undo.DestroyObjectImmediate es solo de Editor
             foreach (var child in children) Undo.DestroyObjectImmediate(child);
 #endif
         }
