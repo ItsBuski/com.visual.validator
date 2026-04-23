@@ -25,7 +25,7 @@ namespace VisualValidator.Runtime
         [ContextMenu("Regenerate ID")]
         public void GenerateAutoID()
         {
-            var allPoints = Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include);
+            var allPoints = Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include, FindObjectsSortMode.None);
 
             int maxIndex = 0;
             string pattern = @"^P(\d+)$";

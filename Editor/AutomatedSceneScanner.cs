@@ -32,11 +32,11 @@ namespace VisualValidator.Editor
             {
                 foreach (string file in Directory.GetFiles(outputDir))
                 {
-                    try { File.Delete(file); } catch (Exception e) { Debug.LogWarning($"Could not delete file {file}: {e.Message}"); }
+                    try { File.Delete(file); } catch { }
                 }
                 foreach (string dir in Directory.GetDirectories(outputDir))
                 {
-                    try { Directory.Delete(dir, true); } catch (Exception e) { Debug.LogWarning($"Could not delete directory {dir}: {e.Message}"); }
+                    try { Directory.Delete(dir, true); } catch { }
                 }
             }
             else
@@ -56,7 +56,7 @@ namespace VisualValidator.Editor
                 SceneManager.SetActiveScene(scene);
                 Physics.SyncTransforms();
 
-                var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include);
+                var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include, FindObjectsSortMode.None);
                 if (points.Length == 0) continue;
 
                 GameObject camObj = new GameObject("ValidatorCam_Headless");
