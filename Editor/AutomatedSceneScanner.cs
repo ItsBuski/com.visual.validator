@@ -5,28 +5,41 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 using System.IO;
+using System.Collections.Generic;
 using System;
 using VisualValidator.Runtime;
 
 namespace VisualValidator.Editor
 {
+    [Serializable]
+    public class CaptureMetadata
+    {
+        public string timestamp;
+        public string scene;
+        public string pointID;
+        public Vector3 coordinates;
+        public Quaternion rotation;
+    }
+
     public static class AutomatedSceneScanner
     {
         public static void RunHeadlessScan()
         {
+            // Disabling batchers forces the engine to stop reusing stale draw states.
             bool srpState = GraphicsSettings.useScriptableRenderPipelineBatching;
             GraphicsSettings.useScriptableRenderPipelineBatching = false;
-            
-            // Force dynamic batching off (if supported by the pipeline)
+
 #pragma warning disable 0618
             bool dynamicBatchingState = PlayerSettings.dynamicBatching;
             PlayerSettings.dynamicBatching = false;
 #pragma warning restore 0618
 
-            string outputDir = Path.Combine(Directory.GetCurrentDirectory(), "ValidationCaptures");
+            string projectRoot = Directory.GetCurrentDirectory();
+            string outputDir = Path.Combine(projectRoot, "ValidationCaptures");
             if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
 
             int totalScenes = SceneManager.sceneCountInBuildSettings;
+            Debug.Log($"[Visual Validator] Starting Headless Scan. Scenes found: {totalScenes}");
 
             for (int i = 0; i < totalScenes; i++)
             {
@@ -36,13 +49,16 @@ namespace VisualValidator.Editor
                 Physics.SyncTransforms();
 
                 var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include);
+                Debug.Log($"[Visual Validator] Scene: {scene.name} | Points: {points.Length}");
+
                 if (points.Length == 0) continue;
 
+                // Setup Clean Room Camera
                 GameObject camObj = new GameObject("Nuclear_ValidatorCam");
                 Camera cam = camObj.AddComponent<Camera>();
                 cam.nearClipPlane = 0.05f;
                 cam.farClipPlane = 2000f;
-                cam.useOcclusionCulling = false; // Never use culling in automation
+                cam.useOcclusionCulling = false; 
                 cam.allowMSAA = false;
                 cam.allowDynamicResolution = false;
 
@@ -58,7 +74,8 @@ namespace VisualValidator.Editor
 
                         string baseName = $"{scene.name}_{p.pointID}_R{angle}";
 
-                        // We render twice. Pass A warms up the GPU/Shaders, Pass B captures the data.
+                        // Pass 1: Throwaway render to force the GPU to rebuild the material pipeline.
+                        // Pass 2: Clean capture with fresh buffers.
                         CaptureAndSave(cam, Path.Combine(outputDir, baseName + "_FrameA.png"));
 
                         // Save Metadata
@@ -79,12 +96,12 @@ namespace VisualValidator.Editor
                 UnityEngine.Object.DestroyImmediate(camObj);
             }
 
-            // Restore engine settings
             GraphicsSettings.useScriptableRenderPipelineBatching = srpState;
 #pragma warning disable 0618
             PlayerSettings.dynamicBatching = dynamicBatchingState;
 #pragma warning restore 0618
 
+            Debug.Log("[Visual Validator] Scan complete. Assets saved.");
             EditorApplication.Exit(0);
         }
 
@@ -93,10 +110,8 @@ namespace VisualValidator.Editor
             RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, RenderTextureFormat.ARGB32);
             cam.targetTexture = rt;
 
-            // This forces Unity to update the internal DrawCall lists and Culling data
             cam.Render(); 
             
-            // We clear the buffer and render again to ensure material correctness
             GL.Clear(true, true, Color.black);
             cam.Render();
 
@@ -112,7 +127,7 @@ namespace VisualValidator.Editor
             RenderTexture.ReleaseTemporary(rt);
             UnityEngine.Object.DestroyImmediate(tex);
             
-            // Force the GPU to finish all tasks before we move to the next point
+            // Force the GPU to finish all tasks before the next position
             GL.Flush();
         }
     }
