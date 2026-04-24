@@ -37,7 +37,7 @@ namespace VisualValidator.Editor
 
             if (Directory.Exists(outputDir))
             {
-                foreach (string f in Directory.GetFiles(outputDir)) try { File.Delete(f); } catch {}
+                foreach (string f in Directory.GetFiles(outputDir)) try { File.Delete(f); } catch { }
             }
             else Directory.CreateDirectory(outputDir);
 
@@ -56,17 +56,16 @@ namespace VisualValidator.Editor
                 var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include, FindObjectsSortMode.None);
                 if (points.Length == 0) continue;
 
-                GameObject camObj = new GameObject("ValidatorCam_Headless");
+                GameObject camObj = new GameObject("ValidatorCam_Internal");
                 Camera cam = camObj.AddComponent<Camera>();
                 
-                Light flashLight = null;
                 if (pipeline == "HDRP")
                 {
                     GameObject lightObj = new GameObject("Emergency_Light");
                     lightObj.transform.SetParent(camObj.transform);
-                    flashLight = lightObj.AddComponent<Light>();
+                    Light flashLight = lightObj.AddComponent<Light>();
                     flashLight.type = LightType.Directional;
-                    flashLight.intensity = 10000f; // High intensity for HDRP physical units
+                    flashLight.intensity = 10000f;
                 }
 
                 SetupCamera(camObj, cam, pipeline);
