@@ -41,7 +41,6 @@ namespace VisualValidator.Editor
             }
             else Directory.CreateDirectory(outputDir);
 
-            // Corregido el nombre de la propiedad en Unity 6
             bool srpState = GraphicsSettings.useScriptableRenderPipelineBatching;
             GraphicsSettings.useScriptableRenderPipelineBatching = false;
 
@@ -74,7 +73,7 @@ namespace VisualValidator.Editor
 
                         string baseName = $"{scene.name}_{p.pointID}_R{angle}";
 
-                        ExecuteGPUCapture(cam, Path.Combine(outputDir, baseName + "_FrameA.png"));
+                        ExecuteGPUCapture(cam, Path.Combine(outputDir, baseName + "_FrameA.png"), pipeline == "HDRP");
 
                         CaptureMetadata meta = new CaptureMetadata {
                             timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
@@ -86,7 +85,7 @@ namespace VisualValidator.Editor
                         File.WriteAllText(Path.Combine(outputDir, baseName + "_Meta.json"), JsonUtility.ToJson(meta, true));
 
                         cam.transform.position += cam.transform.right * 0.0002f;
-                        ExecuteGPUCapture(cam, Path.Combine(outputDir, baseName + "_FrameB.png"));
+                        ExecuteGPUCapture(cam, Path.Combine(outputDir, baseName + "_FrameB.png"), pipeline == "HDRP");
                     }
                 }
                 UnityEngine.Object.DestroyImmediate(camObj);
@@ -107,37 +106,47 @@ namespace VisualValidator.Editor
 #if VISUAL_VALIDATOR_HDRP
                 var hdData = obj.AddComponent<HDAdditionalCameraData>();
                 
-                // IMPORTANTE: En Unity 6, el tipo de cámara se asigna al componente base Camera
+                // En Unity 6, cameraType se asigna a la Camera base, no a HDAdditionalCameraData
                 cam.cameraType = CameraType.Game; 
                 
                 hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
                 hdData.volumeLayerMask = -1;
 
-                // Acceso a FrameSettings para Unity 6 / HDRP 17
-                // No necesitamos el booleano 'customRenderSettings' si configuramos el mask directamente
-                var frameSettings = hdData.renderingPathCustomFrameSettings;
-                var mask = hdData.renderingPathCustomFrameSettingsOverrideMask;
+                // Activamos overrides de FrameSettings
+                hdData.customRenderSettings = true;
+                FrameSettings frameSettings = hdData.renderingPathCustomFrameSettings;
+                FrameSettingsMask mask = hdData.renderingPathCustomFrameSettingsOverrideMask;
 
-                // Activamos explícitamente el Post-proceso en el mask de overrides
+                // Forzamos el Post-proceso (necesario para la exposición física en HDRP)
                 mask.mask[(int)FrameSettingsField.Postprocess] = true;
                 frameSettings.SetEnabled(FrameSettingsField.Postprocess, true);
                 
                 hdData.renderingPathCustomFrameSettings = frameSettings;
                 hdData.renderingPathCustomFrameSettingsOverrideMask = mask;
+
+                // Añadimos un volumen de emergencia para asegurar que haya exposición visible
+                var volume = obj.AddComponent<Volume>();
+                volume.isGlobal = true;
+                volume.priority = 1000;
+                var profile = ScriptableObject.CreateInstance<VolumeProfile>();
+                var exposure = profile.Add<Exposure>();
+                exposure.mode.Override(ExposureMode.Fixed);
+                exposure.fixedExposure.Override(13.0f);
+                volume.profile = profile;
 #endif
             }
         }
 
-        private static void ExecuteGPUCapture(Camera cam, string path)
+        private static void ExecuteGPUCapture(Camera cam, string path, bool isHDRP)
         {
-            // Forzamos sRGB y ARGB32 para que HDRP comprima el color correctamente
             RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
             rt.Create();
             cam.targetTexture = rt;
             
+            // Warm-up: HDRP necesita al menos 2 pases para inicializar búferes de exposición
             cam.Render();
+            if(isHDRP) cam.Render();
 
-            // Sincronización profesional con AsyncGPUReadback
             AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGB24);
             request.WaitForCompletion();
 
@@ -151,7 +160,7 @@ namespace VisualValidator.Editor
             }
             else
             {
-                Debug.LogError($"[Visual Validator] GPU Readback error: {path}");
+                Debug.LogError($"[Visual Validator] GPU Readback failed: {path}");
             }
 
             cam.targetTexture = null;
