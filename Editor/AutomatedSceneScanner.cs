@@ -106,25 +106,25 @@ namespace VisualValidator.Editor
 #if VISUAL_VALIDATOR_HDRP
                 var hdData = obj.AddComponent<HDAdditionalCameraData>();
                 
-                // En Unity 6, cameraType se asigna a la Camera base, no a HDAdditionalCameraData
+                // Unity 6: cameraType está en el componente Camera
                 cam.cameraType = CameraType.Game; 
                 
                 hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
                 hdData.volumeLayerMask = -1;
 
-                // Activamos overrides de FrameSettings
-                hdData.customRenderSettings = true;
+                // CORRECCIÓN API UNITY 6:
+                hdData.hasCustomRenderSettings = true;
                 FrameSettings frameSettings = hdData.renderingPathCustomFrameSettings;
-                FrameSettingsMask mask = hdData.renderingPathCustomFrameSettingsOverrideMask;
+                FrameSettingsOverrideMask mask = hdData.renderingPathCustomFrameSettingsOverrideMask;
 
-                // Forzamos el Post-proceso (necesario para la exposición física en HDRP)
+                // Activamos Post-procesado en la máscara de overrides
                 mask.mask[(int)FrameSettingsField.Postprocess] = true;
                 frameSettings.SetEnabled(FrameSettingsField.Postprocess, true);
                 
                 hdData.renderingPathCustomFrameSettings = frameSettings;
                 hdData.renderingPathCustomFrameSettingsOverrideMask = mask;
 
-                // Añadimos un volumen de emergencia para asegurar que haya exposición visible
+                // Volumen de emergencia para asegurar exposición
                 var volume = obj.AddComponent<Volume>();
                 volume.isGlobal = true;
                 volume.priority = 1000;
@@ -143,7 +143,7 @@ namespace VisualValidator.Editor
             rt.Create();
             cam.targetTexture = rt;
             
-            // Warm-up: HDRP necesita al menos 2 pases para inicializar búferes de exposición
+            // Warm-up para HDRP (mínimo 2 renders para estabilizar exposición)
             cam.Render();
             if(isHDRP) cam.Render();
 
