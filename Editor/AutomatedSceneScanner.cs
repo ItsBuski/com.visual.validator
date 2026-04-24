@@ -92,7 +92,7 @@ namespace VisualValidator.Editor
                 UnityEngine.Object.DestroyImmediate(camObj);
             }
 
-            GraphicsSettings.useScriptableRenderPipelinePipelineBatching = srpState;
+            GraphicsSettings.useScriptableRenderPipelineBatching = srpState;
             EditorApplication.Exit(0);
         }
 
