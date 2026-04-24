@@ -100,8 +100,10 @@ namespace VisualValidator.Editor
         {
             cam.nearClipPlane = 0.05f;
             cam.farClipPlane = 2000f;
+            
+            // Replicando la primera imagen: TAA y Dynamic Resolution apagados
             cam.allowMSAA = false;
-            cam.allowDynamicResolution = false; // AISLAMIENTO 1: Prevenir conflictos con búferes fijos
+            cam.allowDynamicResolution = false;
 
             if (pipeline == "HDRP")
             {
@@ -111,28 +113,44 @@ namespace VisualValidator.Editor
                 cam.cameraType = CameraType.Game; 
                 hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
                 hdData.volumeLayerMask = -1;
-                
-                // AISLAMIENTO 2: Desactivar TAA para capturas instantáneas precisas
                 hdData.antialiasing = HDAdditionalCameraData.AntialiasingMode.None;
 
+                // Replicando Custom Frame Settings de tu Inspector
                 hdData.customRenderingSettings = true; 
                 
                 var frameSettings = hdData.renderingPathCustomFrameSettings;
                 var mask = hdData.renderingPathCustomFrameSettingsOverrideMask;
 
-                mask.mask[(uint)FrameSettingsField.Postprocess] = true;
-                frameSettings.SetEnabled(FrameSettingsField.Postprocess, true);
+                // Forzamos explícitamente el encendido de los pilares que se ven en tus capturas
+                uint[] requiredFields = {
+                    (uint)FrameSettingsField.OpaqueObjects,
+                    (uint)FrameSettingsField.TransparentObjects,
+                    (uint)FrameSettingsField.Postprocess,
+                    (uint)FrameSettingsField.ExposureControl, // CRUCIAL para evitar el negro
+                    (uint)FrameSettingsField.ShadowMaps,
+                    (uint)FrameSettingsField.ReflectionProbe,
+                    (uint)FrameSettingsField.PlanarReflectionProbe,
+                    (uint)FrameSettingsField.SkyReflection,
+                    (uint)FrameSettingsField.DirectSpecularLighting
+                };
+
+                foreach (uint field in requiredFields)
+                {
+                    mask.mask[field] = true;
+                    frameSettings.SetEnabled((FrameSettingsField)field, true);
+                }
                 
                 hdData.renderingPathCustomFrameSettings = frameSettings;
                 hdData.renderingPathCustomFrameSettingsOverrideMask = mask;
 
+                // Volumen de emergencia
                 var volume = obj.AddComponent<Volume>();
                 volume.isGlobal = true;
                 volume.priority = 1000;
                 var profile = ScriptableObject.CreateInstance<VolumeProfile>();
                 var exposure = profile.Add<Exposure>();
                 exposure.mode.Override(ExposureMode.Fixed);
-                exposure.fixedExposure.Override(13.0f);
+                exposure.fixedExposure.Override(13.0f); // 13 es un valor de día soleado
                 volume.profile = profile;
 #endif
             }
