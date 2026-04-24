@@ -27,96 +27,72 @@ namespace VisualValidator.Editor
 
     public static class AutomatedSceneScanner
     {
-        private struct ScanTask
+        public static void RunStandardScan() => InternalRun("Standard");
+        public static void RunHDRPScan() => InternalRun("HDRP");
+
+        private static void InternalRun(string pipeline)
         {
-            public CameraScanPoint point;
-            public float rotation;
-            public string sceneName;
-            public bool isFrameB;
-        }
+            string projectRoot = Directory.GetCurrentDirectory();
+            string outputDir = Path.Combine(projectRoot, "ValidationCaptures");
 
-        private static Queue<ScanTask> taskQueue = new Queue<ScanTask>();
-        private static Camera activeCam;
-        private static string currentPipeline;
-        private static string outputDir;
-
-        public static void RunStandardScan() => PrepareScan("Standard");
-        public static void RunHDRPScan() => PrepareScan("HDRP");
-
-        private static void PrepareScan(string pipeline)
-        {
-            currentPipeline = pipeline;
-            outputDir = Path.Combine(Directory.GetCurrentDirectory(), "ValidationCaptures");
-            
             if (Directory.Exists(outputDir))
             {
                 foreach (string f in Directory.GetFiles(outputDir)) try { File.Delete(f); } catch { }
             }
             else Directory.CreateDirectory(outputDir);
 
+            bool srpState = GraphicsSettings.useScriptableRenderPipelineBatching;
             GraphicsSettings.useScriptableRenderPipelineBatching = false;
 
-            for (int i = 0; i < SceneManager.sceneCountInBuildSettings; i++)
+            int totalScenes = SceneManager.sceneCountInBuildSettings;
+
+            for (int i = 0; i < totalScenes; i++)
             {
                 string path = SceneUtility.GetScenePathByBuildIndex(i);
                 Scene scene = EditorSceneManager.OpenScene(path, OpenSceneMode.Single);
-                
+                SceneManager.SetActiveScene(scene);
+                Physics.SyncTransforms();
+
                 var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                if (points.Length == 0) continue;
+
+                GameObject camObj = new GameObject("ValidatorCam_Core");
+                Camera cam = camObj.AddComponent<Camera>();
+                
+                SetupCamera(camObj, cam, pipeline);
+
                 foreach (var p in points)
                 {
+                    if (p == null || !p.gameObject.activeInHierarchy) continue;
+
                     for (int r = 0; r < p.directionalShots; r++)
                     {
                         float angle = r * (360f / p.directionalShots);
-                        taskQueue.Enqueue(new ScanTask { point = p, rotation = angle, sceneName = scene.name, isFrameB = false });
-                        taskQueue.Enqueue(new ScanTask { point = p, rotation = angle, sceneName = scene.name, isFrameB = true });
+                        cam.transform.position = p.transform.position;
+                        cam.transform.rotation = Quaternion.Euler(0, angle, 0);
+
+                        string baseName = $"{scene.name}_{p.pointID}_R{angle}";
+
+                        ExecuteGPUCapture(cam, Path.Combine(outputDir, baseName + "_FrameA.png"));
+
+                        CaptureMetadata meta = new CaptureMetadata {
+                            timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                            scene = scene.name,
+                            pointID = p.pointID,
+                            coordinates = cam.transform.position,
+                            rotation = cam.transform.rotation
+                        };
+                        File.WriteAllText(Path.Combine(outputDir, baseName + "_Meta.json"), JsonUtility.ToJson(meta, true));
+
+                        cam.transform.position += cam.transform.right * 0.0002f;
+                        ExecuteGPUCapture(cam, Path.Combine(outputDir, baseName + "_FrameB.png"));
                     }
                 }
+                UnityEngine.Object.DestroyImmediate(camObj);
             }
 
-            if (taskQueue.Count > 0)
-            {
-                GameObject camObj = new GameObject("ValidatorCam_Core");
-                activeCam = camObj.AddComponent<Camera>();
-                SetupCamera(camObj, activeCam, currentPipeline);
-                EditorApplication.update += ProcessNextTask;
-            }
-        }
-
-        private static void ProcessNextTask()
-        {
-            if (taskQueue.Count == 0)
-            {
-                EditorApplication.update -= ProcessNextTask;
-                if (activeCam != null) UnityEngine.Object.DestroyImmediate(activeCam.gameObject);
-                EditorApplication.Exit(0);
-                return;
-            }
-
-            var task = taskQueue.Dequeue();
-            var p = task.point;
-            
-            activeCam.transform.position = p.transform.position;
-            activeCam.transform.rotation = Quaternion.Euler(0, task.rotation, 0);
-
-            if (task.isFrameB) activeCam.transform.position += activeCam.transform.right * 0.0002f;
-
-            string suffix = task.isFrameB ? "_FrameB" : "_FrameA";
-            string baseName = $"{task.sceneName}_{p.pointID}_R{task.rotation}";
-            string path = Path.Combine(outputDir, baseName + suffix + ".png");
-
-            ExecuteGPUCapture(activeCam, path);
-
-            if (!task.isFrameB)
-            {
-                CaptureMetadata meta = new CaptureMetadata {
-                    timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-                    scene = task.sceneName,
-                    pointID = p.pointID,
-                    coordinates = activeCam.transform.position,
-                    rotation = activeCam.transform.rotation
-                };
-                File.WriteAllText(Path.Combine(outputDir, baseName + "_Meta.json"), JsonUtility.ToJson(meta, true));
-            }
+            GraphicsSettings.useScriptableRenderPipelineBatching = srpState;
+            EditorApplication.Exit(0);
         }
 
         private static void SetupCamera(GameObject obj, Camera cam, string pipeline)
@@ -129,12 +105,8 @@ namespace VisualValidator.Editor
             {
 #if VISUAL_VALIDATOR_HDRP
                 var hdData = obj.AddComponent<HDAdditionalCameraData>();
-                
-                // DIFERENCIA 1: Engañamos a HDRP diciéndole que somos la cámara principal del juego.
                 hdData.cameraType = HDAdditionalCameraData.CameraType.Game; 
                 hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
-                
-                // DIFERENCIA 2: Forzamos el uso de Post-Procesado para que el Tone Mapping se aplique.
                 hdData.customRenderSettings = true;
                 hdData.bypassPostProcessing = false;
                 hdData.volumeLayerMask = -1;
@@ -144,15 +116,13 @@ namespace VisualValidator.Editor
 
         private static void ExecuteGPUCapture(Camera cam, string path)
         {
-            // DIFERENCIA 3: Obligamos a que el render sea ARGB32 y sRGB. 
-            // HDRP hará el ToneMapping sobre este buffer y nos dará píxeles LDR listos para PNG.
+            // Forzamos buffer ARGB32 SDR para que HDRP haga el tone mapping internamente.
             RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
             cam.targetTexture = rt;
             
             cam.Render();
 
-            // DIFERENCIA 4: En vez de un ReadPixels bloqueante instantáneo, lanzamos una 
-            // petición a la GPU y detenemos la ejecución HASTA que los Compute Shaders terminen.
+            // Petición a la GPU: Esperar obligatoriamente a que los Compute Shaders de HDRP acaben.
             AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGB24);
             request.WaitForCompletion();
 
