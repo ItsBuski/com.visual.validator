@@ -56,7 +56,7 @@ namespace VisualValidator.Editor
                 var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include, FindObjectsSortMode.None);
                 if (points.Length == 0) continue;
 
-                // TÁCTICA EMPRESARIAL: Secuestrar la cámara de la escena
+                // TÁCTICA EMPRESARIAL: Secuestramos tu cámara principal
                 Camera cam = Camera.main;
                 if (cam == null)
                 {
@@ -67,7 +67,6 @@ namespace VisualValidator.Editor
                 bool isHijacked = cam != null;
                 GameObject fallbackObj = null;
 
-                // Solo creamos una si de verdad la escena no tiene ninguna cámara
                 if (!isHijacked)
                 {
                     fallbackObj = new GameObject("ValidatorCam_Fallback");
@@ -76,15 +75,42 @@ namespace VisualValidator.Editor
                     cam.farClipPlane = 2000f;
                 }
 
-                // Guardamos el estado original para dejarlo todo como estaba
+                // Guardamos el estado original para no romper tu proyecto
                 Vector3 origPos = cam.transform.position;
                 Quaternion origRot = cam.transform.rotation;
                 RenderTexture origTex = cam.targetTexture;
                 
-                // Dormimos a Cinemachine si existe en tu cámara para que no nos pelee la posición
+                // Desactivamos Cinemachine temporalmente
                 Behaviour cmBrain = cam.GetComponent("CinemachineBrain") as Behaviour;
                 bool brainState = false;
                 if (cmBrain != null) { brainState = cmBrain.enabled; cmBrain.enabled = false; }
+
+                GameObject exposureOverrideObj = null;
+#if VISUAL_VALIDATOR_HDRP
+                HDAdditionalCameraData hdData = cam.GetComponent<HDAdditionalCameraData>();
+                HDAdditionalCameraData.AntialiasingMode origAA = HDAdditionalCameraData.AntialiasingMode.None;
+
+                if (pipeline == "HDRP")
+                {
+                    if (hdData != null)
+                    {
+                        // Apagamos el TAA porque genera imágenes fantasma al teletransportarnos
+                        origAA = hdData.antialiasing;
+                        hdData.antialiasing = HDAdditionalCameraData.AntialiasingMode.None;
+                    }
+
+                    // INYECCIÓN DE EMERGENCIA: Forzamos la exposición anulando el tiempo congelado del Editor
+                    exposureOverrideObj = new GameObject("VisualValidator_ExposureOverride");
+                    var overrideVolume = exposureOverrideObj.AddComponent<Volume>();
+                    overrideVolume.isGlobal = true;
+                    overrideVolume.priority = 10000; // Prioridad Absoluta, sobreescribe toda tu escena
+                    var profile = ScriptableObject.CreateInstance<VolumeProfile>();
+                    var exposure = profile.Add<Exposure>();
+                    exposure.mode.Override(ExposureMode.Fixed);
+                    exposure.fixedExposure.Override(11.0f); // 11.0f es un valor estándar para interiores iluminados/exteriores
+                    overrideVolume.profile = profile;
+                }
+#endif
 
                 WarmUpCamera(cam, pipeline);
 
@@ -116,12 +142,19 @@ namespace VisualValidator.Editor
                     }
                 }
 
-                // Restauramos la escena a su estado natural
+                // Restauramos tu cámara a su estado natural
                 cam.transform.position = origPos;
                 cam.transform.rotation = origRot;
                 cam.targetTexture = origTex;
                 if (cmBrain != null) cmBrain.enabled = brainState;
 
+#if VISUAL_VALIDATOR_HDRP
+                if (pipeline == "HDRP")
+                {
+                    if (hdData != null) hdData.antialiasing = origAA;
+                    if (exposureOverrideObj != null) UnityEngine.Object.DestroyImmediate(exposureOverrideObj);
+                }
+#endif
                 if (!isHijacked) UnityEngine.Object.DestroyImmediate(fallbackObj);
             }
 
@@ -131,11 +164,12 @@ namespace VisualValidator.Editor
 
         private static void WarmUpCamera(Camera cam, string pipeline)
         {
-            RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+            // CRÍTICO: HDRP necesita DefaultHDR para no cortar la luz. ARGB32 falla.
+            RenderTextureFormat format = pipeline == "HDRP" ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.ARGB32;
+            RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, format);
             rt.Create();
             cam.targetTexture = rt;
 
-            // Calentamiento crítico para estabilizar la exposición y luces volumétricas de tu escena
             int warmUpFrames = pipeline == "HDRP" ? 8 : 2;
             for (int i = 0; i < warmUpFrames; i++) { cam.Render(); }
 
@@ -150,12 +184,13 @@ namespace VisualValidator.Editor
 
         private static void ExecuteGPUCapture(Camera cam, string path, bool isHDRP)
         {
-            RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+            RenderTextureFormat format = isHDRP ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.ARGB32;
+            RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, format);
             rt.Create();
             cam.targetTexture = rt;
             
             cam.Render();
-            if (isHDRP) cam.Render(); // Doble renderizado para asentar el frame actual
+            if (isHDRP) cam.Render(); // Doble renderizado para asentar el Post-Processing
 
             AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGB24);
             request.WaitForCompletion();
