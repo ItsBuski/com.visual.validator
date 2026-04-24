@@ -27,13 +27,13 @@ namespace VisualValidator.Editor
 
     public static class AutomatedSceneScanner
     {
+        // Estos son los nombres que Unity busca al ejecutar el .bat
         public static void RunStandardScan() => InternalRun("Standard");
         public static void RunHDRPScan() => InternalRun("HDRP");
 
         private static void InternalRun(string pipeline)
         {
-            string projectRoot = Directory.GetCurrentDirectory();
-            string outputDir = Path.Combine(projectRoot, "ValidationCaptures");
+            string outputDir = Path.Combine(Directory.GetCurrentDirectory(), "ValidationCaptures");
 
             if (Directory.Exists(outputDir))
             {
@@ -44,13 +44,9 @@ namespace VisualValidator.Editor
             bool srpState = GraphicsSettings.useScriptableRenderPipelineBatching;
             GraphicsSettings.useScriptableRenderPipelineBatching = false;
 
-            int totalScenes = SceneManager.sceneCountInBuildSettings;
-
-            for (int i = 0; i < totalScenes; i++)
+            for (int i = 0; i < SceneManager.sceneCountInBuildSettings; i++)
             {
-                string path = SceneUtility.GetScenePathByBuildIndex(i);
-                Scene scene = EditorSceneManager.OpenScene(path, OpenSceneMode.Single);
-                SceneManager.SetActiveScene(scene);
+                Scene scene = EditorSceneManager.OpenScene(SceneUtility.GetScenePathByBuildIndex(i), OpenSceneMode.Single);
                 Physics.SyncTransforms();
 
                 var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include, FindObjectsSortMode.None);
@@ -58,7 +54,6 @@ namespace VisualValidator.Editor
 
                 GameObject camObj = new GameObject("ValidatorCam_Core");
                 Camera cam = camObj.AddComponent<Camera>();
-                
                 SetupCamera(camObj, cam, pipeline);
 
                 foreach (var p in points)
@@ -71,21 +66,10 @@ namespace VisualValidator.Editor
                         cam.transform.position = p.transform.position;
                         cam.transform.rotation = Quaternion.Euler(0, angle, 0);
 
-                        string baseName = $"{scene.name}_{p.pointID}_R{angle}";
-
-                        ExecuteGPUCapture(cam, Path.Combine(outputDir, baseName + "_FrameA.png"));
-
-                        CaptureMetadata meta = new CaptureMetadata {
-                            timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-                            scene = scene.name,
-                            pointID = p.pointID,
-                            coordinates = cam.transform.position,
-                            rotation = cam.transform.rotation
-                        };
-                        File.WriteAllText(Path.Combine(outputDir, baseName + "_Meta.json"), JsonUtility.ToJson(meta, true));
-
+                        ExecuteCapture(cam, Path.Combine(outputDir, $"{scene.name}_{p.pointID}_R{angle}_FrameA.png"), pipeline == "HDRP");
+                        
                         cam.transform.position += cam.transform.right * 0.0002f;
-                        ExecuteGPUCapture(cam, Path.Combine(outputDir, baseName + "_FrameB.png"));
+                        ExecuteCapture(cam, Path.Combine(outputDir, $"{scene.name}_{p.pointID}_R{angle}_FrameB.png"), pipeline == "HDRP");
                     }
                 }
                 UnityEngine.Object.DestroyImmediate(camObj);
@@ -99,30 +83,24 @@ namespace VisualValidator.Editor
         {
             cam.nearClipPlane = 0.05f;
             cam.farClipPlane = 2000f;
-            cam.allowMSAA = false;
 
             if (pipeline == "HDRP")
             {
 #if VISUAL_VALIDATOR_HDRP
                 var hdData = obj.AddComponent<HDAdditionalCameraData>();
-                hdData.cameraType = HDAdditionalCameraData.CameraType.Game; 
-                hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
-                hdData.customRenderSettings = true;
-                hdData.bypassPostProcessing = false;
+                hdData.cameraType = HDAdditionalCameraData.CameraType.Game;
                 hdData.volumeLayerMask = -1;
 #endif
             }
         }
 
-        private static void ExecuteGPUCapture(Camera cam, string path)
+        private static void ExecuteCapture(Camera cam, string path, bool isHDRP)
         {
-            // Forzamos buffer ARGB32 SDR para que HDRP haga el tone mapping internamente.
-            RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+            RenderTextureFormat format = isHDRP ? RenderTextureFormat.ARGB32 : RenderTextureFormat.ARGB32;
+            RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, format, RenderTextureReadWrite.sRGB);
             cam.targetTexture = rt;
-            
             cam.Render();
 
-            // Petición a la GPU: Esperar obligatoriamente a que los Compute Shaders de HDRP acaben.
             AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGB24);
             request.WaitForCompletion();
 
@@ -134,14 +112,9 @@ namespace VisualValidator.Editor
                 File.WriteAllBytes(path, tex.EncodeToPNG());
                 UnityEngine.Object.DestroyImmediate(tex);
             }
-            else
-            {
-                Debug.LogError($"[Visual Validator] GPU Readback failed for {path}");
-            }
 
             cam.targetTexture = null;
             RenderTexture.ReleaseTemporary(rt);
-            GL.Flush();
         }
     }
 }
