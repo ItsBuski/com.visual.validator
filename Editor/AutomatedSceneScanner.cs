@@ -60,6 +60,9 @@ namespace VisualValidator.Editor
                 Camera cam = camObj.AddComponent<Camera>();
                 
                 SetupCamera(camObj, cam, pipeline);
+                
+                // Forzamos el calentamiento de la GPU antes de la primera foto real
+                WarmUpCamera(cam, pipeline);
 
                 foreach (var p in points)
                 {
@@ -106,27 +109,22 @@ namespace VisualValidator.Editor
 #if VISUAL_VALIDATOR_HDRP
                 var hdData = obj.AddComponent<HDAdditionalCameraData>();
                 
-                // Unity 6: cameraType está en el componente base de la cámara
                 cam.cameraType = CameraType.Game; 
                 
                 hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
                 hdData.volumeLayerMask = -1;
 
-                // CORRECCIONES PARA UNITY 6 (6000.x):
                 hdData.customRenderingSettings = true; 
                 
-                // Usamos 'var' para evitar problemas de referencias con los structs cambiantes de HDRP
                 var frameSettings = hdData.renderingPathCustomFrameSettings;
                 var mask = hdData.renderingPathCustomFrameSettingsOverrideMask;
 
-                // La máscara interna es un BitArray128, requiere casteo a uint
                 mask.mask[(uint)FrameSettingsField.Postprocess] = true;
                 frameSettings.SetEnabled(FrameSettingsField.Postprocess, true);
                 
                 hdData.renderingPathCustomFrameSettings = frameSettings;
                 hdData.renderingPathCustomFrameSettingsOverrideMask = mask;
 
-                // Volumen de emergencia para asegurar exposición
                 var volume = obj.AddComponent<Volume>();
                 volume.isGlobal = true;
                 volume.priority = 1000;
@@ -139,13 +137,37 @@ namespace VisualValidator.Editor
             }
         }
 
+        private static void WarmUpCamera(Camera cam, string pipeline)
+        {
+            // Creamos un buffer temporal solo para estabilizar la GPU
+            RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+            rt.Create();
+            cam.targetTexture = rt;
+
+            // HDRP necesita más tiempo para asentar la luz volumétrica y la exposición. URP es más directo.
+            int warmUpFrames = pipeline == "HDRP" ? 6 : 2;
+            
+            for (int i = 0; i < warmUpFrames; i++)
+            {
+                cam.Render();
+            }
+
+            // Petición vacía a la GPU para asegurar que terminó los cálculos basura
+            AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGB24);
+            request.WaitForCompletion();
+
+            cam.targetTexture = null;
+            RenderTexture.active = null;
+            RenderTexture.ReleaseTemporary(rt);
+            GL.Flush();
+        }
+
         private static void ExecuteGPUCapture(Camera cam, string path, bool isHDRP)
         {
             RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
             rt.Create();
             cam.targetTexture = rt;
             
-            // Warm-up para HDRP
             cam.Render();
             if(isHDRP) cam.Render();
 
