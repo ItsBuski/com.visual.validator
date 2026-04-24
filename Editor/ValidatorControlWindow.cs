@@ -33,7 +33,7 @@ namespace VisualValidator.Editor
                 ExecutePipeline("VisualValidator.Editor.AutomatedSceneScanner.RunHDRPScan");
 
             GUI.backgroundColor = Color.white;
-            EditorGUILayout.HelpBox("Batch scan will save open scenes and restart Unity.", MessageType.Warning);
+            EditorGUILayout.HelpBox("Headless scan will save scenes and restart Unity.", MessageType.Warning);
         }
 
         private void ExtractTools()
@@ -48,9 +48,9 @@ namespace VisualValidator.Editor
             {
                 string[] files = { "RunValidation.bat", "analyze_captures.py" };
                 foreach (string f in files) File.Copy(Path.Combine(packagePath, f), Path.Combine(targetDir, f), true);
-                EditorUtility.DisplayDialog("Success", "Tools extracted.", "OK");
+                EditorUtility.DisplayDialog("Success", "Tools extracted successfully.", "OK");
             }
-            catch (Exception e) { UnityEngine.Debug.LogError($"Extraction failed: {e.Message}"); }
+            catch (Exception e) { UnityEngine.Debug.LogError($"[Validator] Extraction failed: {e.Message}"); }
         }
 
         private void ExecutePipeline(string method)

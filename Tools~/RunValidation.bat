@@ -6,6 +6,8 @@ set "TARGET_METHOD=%~1"
 
 if "%TARGET_METHOD%"=="" set "TARGET_METHOD=VisualValidator.Editor.AutomatedSceneScanner.RunStandardScan"
 
+echo "%TARGET_METHOD%"
+
 pushd "%SCRIPT_DIR%.."
 set "PROJECT_ROOT=%CD%"
 popd

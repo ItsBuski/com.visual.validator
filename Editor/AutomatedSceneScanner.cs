@@ -58,7 +58,9 @@ namespace VisualValidator.Editor
 
                 GameObject camObj = new GameObject("ValidatorCam_Headless");
                 Camera cam = camObj.AddComponent<Camera>();
-                SetupCamera(camObj, cam, pipeline);
+                
+                // --- HDRP Fix Injection ---
+                SetupCameraPipeline(camObj, cam, pipeline);
 
                 foreach (var p in points)
                 {
@@ -90,16 +92,15 @@ namespace VisualValidator.Editor
                 UnityEngine.Object.DestroyImmediate(camObj);
             }
 
-            GraphicsSettings.useScriptableRenderPipelineBatching = srpState;
+            GraphicsSettings.useScriptableRenderPipelinePipelineBatching = srpState;
             EditorApplication.Exit(0);
         }
 
-        private static void SetupCamera(GameObject obj, Camera cam, string pipeline)
+        private static void SetupCameraPipeline(GameObject obj, Camera cam, string pipeline)
         {
             cam.nearClipPlane = 0.05f;
             cam.farClipPlane = 2000f;
             cam.useOcclusionCulling = false;
-            cam.allowMSAA = false;
 
             if (pipeline == "HDRP")
             {
@@ -108,7 +109,8 @@ namespace VisualValidator.Editor
                 hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Color;
                 hdData.backgroundColorHDR = Color.black;
 
-                var volObj = new GameObject("HDRP_Exposure_Fix");
+                // Force a fixed exposure volume to avoid black frames in frame 0
+                var volObj = new GameObject("HDRP_Exposure_Override");
                 volObj.transform.SetParent(obj.transform);
                 var volume = volObj.AddComponent<Volume>();
                 volume.isGlobal = true;
@@ -128,14 +130,18 @@ namespace VisualValidator.Editor
             RenderTextureFormat format = isHDRP ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.ARGB32;
             RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, format);
             cam.targetTexture = rt;
+            
             cam.Render(); 
             GL.Clear(true, true, Color.black);
             cam.Render();
+
             RenderTexture.active = rt;
             Texture2D tex = new Texture2D(1920, 1080, TextureFormat.RGB24, false);
             tex.ReadPixels(new Rect(0, 0, 1920, 1080), 0, 0);
             tex.Apply();
+
             File.WriteAllBytes(path, tex.EncodeToPNG());
+
             cam.targetTexture = null;
             RenderTexture.active = null;
             RenderTexture.ReleaseTemporary(rt);
