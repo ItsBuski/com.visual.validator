@@ -27,7 +27,6 @@ namespace VisualValidator.Editor
 
     public static class AutomatedSceneScanner
     {
-        // Puntos de entrada para el archivo .bat
         public static void RunStandardScan() => InternalRun("Standard");
         public static void RunHDRPScan() => InternalRun("HDRP");
 
@@ -36,13 +35,13 @@ namespace VisualValidator.Editor
             string projectRoot = Directory.GetCurrentDirectory();
             string outputDir = Path.Combine(projectRoot, "ValidationCaptures");
 
-            // Limpieza inicial de la carpeta de capturas
             if (Directory.Exists(outputDir))
             {
                 foreach (string f in Directory.GetFiles(outputDir)) try { File.Delete(f); } catch { }
             }
             else Directory.CreateDirectory(outputDir);
 
+            // CORRECCIÓN: Nombre de propiedad correcto en Unity 6
             bool srpState = GraphicsSettings.useScriptableRenderPipelineBatching;
             GraphicsSettings.useScriptableRenderPipelineBatching = false;
 
@@ -61,7 +60,6 @@ namespace VisualValidator.Editor
                 GameObject camObj = new GameObject("ValidatorCam_Core");
                 Camera cam = camObj.AddComponent<Camera>();
                 
-                // Configuración específica según el pipeline
                 SetupCamera(camObj, cam, pipeline);
 
                 foreach (var p in points)
@@ -76,10 +74,8 @@ namespace VisualValidator.Editor
 
                         string baseName = $"{scene.name}_{p.pointID}_R{angle}";
 
-                        // Captura Frame A
                         ExecuteGPUCapture(cam, Path.Combine(outputDir, baseName + "_FrameA.png"));
 
-                        // Metadata
                         CaptureMetadata meta = new CaptureMetadata {
                             timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                             scene = scene.name,
@@ -89,7 +85,6 @@ namespace VisualValidator.Editor
                         };
                         File.WriteAllText(Path.Combine(outputDir, baseName + "_Meta.json"), JsonUtility.ToJson(meta, true));
 
-                        // Captura Frame B (Estéreo/Profundidad)
                         cam.transform.position += cam.transform.right * 0.0002f;
                         ExecuteGPUCapture(cam, Path.Combine(outputDir, baseName + "_FrameB.png"));
                     }
@@ -111,23 +106,35 @@ namespace VisualValidator.Editor
             {
 #if VISUAL_VALIDATOR_HDRP
                 var hdData = obj.AddComponent<HDAdditionalCameraData>();
-                hdData.cameraType = HDAdditionalCameraData.CameraType.Game; 
+                
+                // En Unity 6, el tipo de cámara se define en el componente base de Unity
+                cam.cameraType = CameraType.Game; 
+                
                 hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
-                hdData.customRenderSettings = true;
-                hdData.bypassPostProcessing = false; // Importante para que no salga negro
                 hdData.volumeLayerMask = -1;
+
+                // Acceso profesional a FrameSettings en Unity 6 para forzar Post-Procesado
+                hdData.hasCustomRenderSettings = true;
+                var frameSettings = hdData.renderingPathCustomFrameSettings;
+                var mask = hdData.renderingPathCustomFrameSettingsOverrideMask;
+
+                // Forzamos explícitamente que el Post-proceso esté activo
+                mask.mask[(int)FrameSettingsField.Postprocess] = true;
+                frameSettings.SetEnabled(FrameSettingsField.Postprocess, true);
+                
+                hdData.renderingPathCustomFrameSettings = frameSettings;
+                hdData.renderingPathCustomFrameSettingsOverrideMask = mask;
 #endif
             }
         }
 
         private static void ExecuteGPUCapture(Camera cam, string path)
         {
-            // Usamos sRGB para que el resultado sea directamente grabable en PNG sin lavar el color
             RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
             cam.targetTexture = rt;
             cam.Render();
 
-            // Sincronización con la GPU: Espera a que los píxeles estén calculados
+            // Sincronización asíncrona profesional: espera a que la GPU termine el frame
             AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGB24);
             request.WaitForCompletion();
 
@@ -141,7 +148,7 @@ namespace VisualValidator.Editor
             }
             else
             {
-                Debug.LogError($"[Visual Validator] Fallo en la lectura de GPU para: {path}");
+                Debug.LogError($"[Visual Validator] GPU Readback failed: {path}");
             }
 
             cam.targetTexture = null;
