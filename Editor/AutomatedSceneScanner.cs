@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System;
 using VisualValidator.Runtime;
 
-#if UNITY_PIPELINE_HDRP || VISUAL_VALIDATOR_HDRP
+#if VISUAL_VALIDATOR_HDRP
 using UnityEngine.Rendering.HighDefinition;
 #endif
 
@@ -103,45 +103,39 @@ namespace VisualValidator.Editor
 
             if (pipeline == "HDRP")
             {
-#if UNITY_PIPELINE_HDRP || VISUAL_VALIDATOR_HDRP
+#if VISUAL_VALIDATOR_HDRP
                 var hdData = obj.AddComponent<HDAdditionalCameraData>();
                 hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
-                hdData.volumeLayerMask = -1; // Force camera to see ALL volume layers
+                hdData.volumeLayerMask = -1; 
 
                 var volObj = new GameObject("HDRP_Exposure_Override");
                 volObj.transform.SetParent(obj.transform);
-                volObj.layer = 0; // Default layer
-                
                 var volume = volObj.AddComponent<Volume>();
                 volume.isGlobal = true;
-                volume.priority = 999; // Absolute priority
+                volume.priority = 999;
                 
                 var profile = ScriptableObject.CreateInstance<VolumeProfile>();
                 var exposure = profile.Add<Exposure>();
                 exposure.mode.Override(ExposureMode.Fixed);
                 exposure.fixedExposure.Override(13.0f);
-                
-                // Add visual environment to ensure sky is rendered
                 profile.Add<VisualEnvironment>(); 
                 
                 volume.profile = profile;
+#else
+                Debug.LogError("[Visual Validator] HDRP Scan requested but HDRP package is not installed.");
 #endif
             }
         }
 
         private static void CaptureAndSave(Camera cam, string path, bool isHDRP)
         {
-            // HDRP requires a compatible HDR format to resolve correctly
             RenderTextureFormat format = isHDRP ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.ARGB32;
             RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, format);
-            
-            // Critical for HDRP: Ensure the RT is linear and has a random access flag if needed
             rt.Create();
             cam.targetTexture = rt;
 
             if (isHDRP)
             {
-                // HDRP Warmup: Render 3 times to ensure Constant Buffers and Exposure are applied
                 cam.Render();
                 cam.Render();
                 GL.Clear(true, true, Color.black);
