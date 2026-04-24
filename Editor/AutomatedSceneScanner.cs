@@ -58,9 +58,7 @@ namespace VisualValidator.Editor
 
                 GameObject camObj = new GameObject("ValidatorCam_Headless");
                 Camera cam = camObj.AddComponent<Camera>();
-                
-                // --- HDRP Fix Injection ---
-                SetupCameraPipeline(camObj, cam, pipeline);
+                SetupCamera(camObj, cam, pipeline);
 
                 foreach (var p in points)
                 {
@@ -96,30 +94,36 @@ namespace VisualValidator.Editor
             EditorApplication.Exit(0);
         }
 
-        private static void SetupCameraPipeline(GameObject obj, Camera cam, string pipeline)
+        private static void SetupCamera(GameObject obj, Camera cam, string pipeline)
         {
             cam.nearClipPlane = 0.05f;
             cam.farClipPlane = 2000f;
             cam.useOcclusionCulling = false;
+            cam.allowMSAA = false;
 
             if (pipeline == "HDRP")
             {
 #if UNITY_PIPELINE_HDRP || VISUAL_VALIDATOR_HDRP
                 var hdData = obj.AddComponent<HDAdditionalCameraData>();
-                hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Color;
-                hdData.backgroundColorHDR = Color.black;
+                hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
+                hdData.volumeLayerMask = -1; // Force camera to see ALL volume layers
 
-                // Force a fixed exposure volume to avoid black frames in frame 0
                 var volObj = new GameObject("HDRP_Exposure_Override");
                 volObj.transform.SetParent(obj.transform);
+                volObj.layer = 0; // Default layer
+                
                 var volume = volObj.AddComponent<Volume>();
                 volume.isGlobal = true;
-                volume.priority = 100;
+                volume.priority = 999; // Absolute priority
                 
                 var profile = ScriptableObject.CreateInstance<VolumeProfile>();
                 var exposure = profile.Add<Exposure>();
                 exposure.mode.Override(ExposureMode.Fixed);
                 exposure.fixedExposure.Override(13.0f);
+                
+                // Add visual environment to ensure sky is rendered
+                profile.Add<VisualEnvironment>(); 
+                
                 volume.profile = profile;
 #endif
             }
@@ -127,13 +131,28 @@ namespace VisualValidator.Editor
 
         private static void CaptureAndSave(Camera cam, string path, bool isHDRP)
         {
+            // HDRP requires a compatible HDR format to resolve correctly
             RenderTextureFormat format = isHDRP ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.ARGB32;
             RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, format);
-            cam.targetTexture = rt;
             
-            cam.Render(); 
-            GL.Clear(true, true, Color.black);
-            cam.Render();
+            // Critical for HDRP: Ensure the RT is linear and has a random access flag if needed
+            rt.Create();
+            cam.targetTexture = rt;
+
+            if (isHDRP)
+            {
+                // HDRP Warmup: Render 3 times to ensure Constant Buffers and Exposure are applied
+                cam.Render();
+                cam.Render();
+                GL.Clear(true, true, Color.black);
+                cam.Render();
+            }
+            else
+            {
+                cam.Render();
+                GL.Clear(true, true, Color.black);
+                cam.Render();
+            }
 
             RenderTexture.active = rt;
             Texture2D tex = new Texture2D(1920, 1080, TextureFormat.RGB24, false);
