@@ -7,7 +7,7 @@ using UnityEngine.SceneManagement;
 using System.IO;
 using System.Collections.Generic;
 using System;
-using System.Threading.Tasks; // LIBRERÍA AÑADIDA PARA PAUSAS REALES
+using System.Threading.Tasks;
 using VisualValidator.Runtime;
 
 #if VISUAL_VALIDATOR_HDRP
@@ -28,7 +28,9 @@ namespace VisualValidator.Editor
 
     public static class AutomatedSceneScanner
     {
-        // Los métodos de entrada ahora llaman al proceso asíncrono
+        // RUTA DE TU ESCENA BASE (Ajusta esto si no es Init.unity)
+        private const string BOOTSTRAP_SCENE_PATH = "Assets/Scenes/RuntimeScenes/Demo_Lighting.unity";
+
         public static async void RunStandardScan() => await InternalRunAsync("Standard");
         public static async void RunHDRPScan() => await InternalRunAsync("HDRP");
 
@@ -46,22 +48,43 @@ namespace VisualValidator.Editor
             bool srpState = GraphicsSettings.useScriptableRenderPipelineBatching;
             GraphicsSettings.useScriptableRenderPipelineBatching = false;
 
+            // 1. CARGAR ESCENA BASE (Init)
+            // Aquí está la iluminación global, el volumen de HDRP y la cámara principal
+            if (File.Exists(BOOTSTRAP_SCENE_PATH))
+            {
+                EditorSceneManager.OpenScene(BOOTSTRAP_SCENE_PATH, OpenSceneMode.Single);
+            }
+            else
+            {
+                Debug.LogWarning($"[Visual Validator] No se encontró {BOOTSTRAP_SCENE_PATH}. Revisa la ruta en el script.");
+            }
+
             int totalScenes = SceneManager.sceneCountInBuildSettings;
 
             for (int i = 0; i < totalScenes; i++)
             {
                 string path = SceneUtility.GetScenePathByBuildIndex(i);
-                Scene scene = EditorSceneManager.OpenScene(path, OpenSceneMode.Single);
-                SceneManager.SetActiveScene(scene);
+                
+                // Ignoramos la escena base o escenas de menús que no requieran escaneo
+                if (path == BOOTSTRAP_SCENE_PATH || path.Contains("MainMenu")) continue;
+
+                // 2. CARGA ADITIVA (Igual que vuestro LevelLoader)
+                Scene levelScene = EditorSceneManager.OpenScene(path, OpenSceneMode.Additive);
+                SceneManager.SetActiveScene(levelScene);
                 Physics.SyncTransforms();
 
                 var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-                if (points.Length == 0) continue;
+                if (points.Length == 0) 
+                {
+                    // Si la escena no tiene puntos, la cerramos y pasamos a la siguiente
+                    EditorSceneManager.CloseScene(levelScene, true);
+                    continue;
+                }
 
-                // TÁCTICA EMPRESARIAL: Pausa para dejar que la escena pesada cargue
-                Debug.Log($"[Visual Validator] Escena '{scene.name}' abierta. Esperando carga de Shaders y Texturas...");
-                await Task.Delay(4000); // Espera 4 segundos reales
+                Debug.Log($"[Visual Validator] Nivel '{levelScene.name}' cargado. Esperando recursos...");
+                await Task.Delay(3000); // Damos tiempo a que carguen texturas y lightmaps
 
+                // 3. SECUESTRO DE LA CÁMARA (Que ahora existirá gracias al Bootstrap)
                 Camera cam = Camera.main;
                 if (cam == null)
                 {
@@ -88,47 +111,18 @@ namespace VisualValidator.Editor
                 bool brainState = false;
                 if (cmBrain != null) { brainState = cmBrain.enabled; cmBrain.enabled = false; }
 
-                GameObject exposureOverrideObj = null;
 #if VISUAL_VALIDATOR_HDRP
                 HDAdditionalCameraData hdData = cam.GetComponent<HDAdditionalCameraData>();
                 HDAdditionalCameraData.AntialiasingMode origAA = HDAdditionalCameraData.AntialiasingMode.None;
 
-                if (pipeline == "HDRP")
+                if (pipeline == "HDRP" && hdData != null)
                 {
-                    if (hdData != null)
-                    {
-                        origAA = hdData.antialiasing;
-                        hdData.antialiasing = HDAdditionalCameraData.AntialiasingMode.None;
-                        
-                        hdData.customRenderingSettings = true; 
-                        var frameSettings = hdData.renderingPathCustomFrameSettings;
-                        var mask = hdData.renderingPathCustomFrameSettingsOverrideMask;
-
-                        // Aseguramos exposición y renderizado opaco
-                        uint[] requiredFields = {
-                            (uint)FrameSettingsField.OpaqueObjects,
-                            (uint)FrameSettingsField.Postprocess,
-                            (uint)FrameSettingsField.ExposureControl
-                        };
-                        foreach (uint field in requiredFields) {
-                            mask.mask[field] = true;
-                            frameSettings.SetEnabled((FrameSettingsField)field, true);
-                        }
-                        hdData.renderingPathCustomFrameSettings = frameSettings;
-                        hdData.renderingPathCustomFrameSettingsOverrideMask = mask;
-                    }
-
-                    exposureOverrideObj = new GameObject("VisualValidator_ExposureOverride");
-                    var overrideVolume = exposureOverrideObj.AddComponent<Volume>();
-                    overrideVolume.isGlobal = true;
-                    overrideVolume.priority = 10000; 
-                    var profile = ScriptableObject.CreateInstance<VolumeProfile>();
-                    var exposure = profile.Add<Exposure>();
-                    exposure.mode.Override(ExposureMode.Fixed);
-                    exposure.fixedExposure.Override(11.0f);
-                    overrideVolume.profile = profile;
+                    origAA = hdData.antialiasing;
+                    hdData.antialiasing = HDAdditionalCameraData.AntialiasingMode.None; // TAA off
                 }
 #endif
+
+                WarmUpCamera(cam, pipeline);
 
                 foreach (var p in points)
                 {
@@ -140,16 +134,15 @@ namespace VisualValidator.Editor
                         cam.transform.position = p.transform.position;
                         cam.transform.rotation = Quaternion.Euler(0, angle, 0);
 
-                        // TÁCTICA EMPRESARIAL: Dejar que la Exposición/Luz se adapte a esta nueva posición
-                        await Task.Delay(500); // 0.5 segundos de pausa por cada foto
+                        await Task.Delay(400); // Pausa para estabilizar Auto-Exposure
 
-                        string baseName = $"{scene.name}_{p.pointID}_R{angle}";
+                        string baseName = $"{levelScene.name}_{p.pointID}_R{angle}";
 
                         ExecuteGPUCapture(cam, Path.Combine(outputDir, baseName + "_FrameA.png"), pipeline == "HDRP");
 
                         CaptureMetadata meta = new CaptureMetadata {
                             timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-                            scene = scene.name,
+                            scene = levelScene.name,
                             pointID = p.pointID,
                             coordinates = cam.transform.position,
                             rotation = cam.transform.rotation
@@ -157,29 +150,48 @@ namespace VisualValidator.Editor
                         File.WriteAllText(Path.Combine(outputDir, baseName + "_Meta.json"), JsonUtility.ToJson(meta, true));
 
                         cam.transform.position += cam.transform.right * 0.0002f;
-                        await Task.Delay(200); // Pausa corta para la estéreo
+                        await Task.Delay(100);
                         ExecuteGPUCapture(cam, Path.Combine(outputDir, baseName + "_FrameB.png"), pipeline == "HDRP");
                     }
                 }
 
+                // Restaurar cámara
                 cam.transform.position = origPos;
                 cam.transform.rotation = origRot;
                 cam.targetTexture = origTex;
                 if (cmBrain != null) cmBrain.enabled = brainState;
 
 #if VISUAL_VALIDATOR_HDRP
-                if (pipeline == "HDRP")
-                {
-                    if (hdData != null) hdData.antialiasing = origAA;
-                    if (exposureOverrideObj != null) UnityEngine.Object.DestroyImmediate(exposureOverrideObj);
-                }
+                if (pipeline == "HDRP" && hdData != null) hdData.antialiasing = origAA;
 #endif
                 if (!isHijacked) UnityEngine.Object.DestroyImmediate(fallbackObj);
+
+                // 4. LIMPIEZA ADITIVA: Descargamos el nivel para dejar el Bootstrap limpio
+                EditorSceneManager.CloseScene(levelScene, true);
             }
 
             GraphicsSettings.useScriptableRenderPipelineBatching = srpState;
             Debug.Log("[Visual Validator] Secuencia completada. Cerrando Unity...");
             EditorApplication.Exit(0);
+        }
+
+        private static void WarmUpCamera(Camera cam, string pipeline)
+        {
+            RenderTextureFormat format = pipeline == "HDRP" ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.ARGB32;
+            RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, format);
+            rt.Create();
+            cam.targetTexture = rt;
+
+            int warmUpFrames = pipeline == "HDRP" ? 8 : 2;
+            for (int i = 0; i < warmUpFrames; i++) { cam.Render(); }
+
+            AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGB24);
+            request.WaitForCompletion();
+
+            cam.targetTexture = null;
+            RenderTexture.active = null;
+            RenderTexture.ReleaseTemporary(rt);
+            GL.Flush();
         }
 
         private static void ExecuteGPUCapture(Camera cam, string path, bool isHDRP)
