@@ -101,7 +101,6 @@ namespace VisualValidator.Editor
             cam.nearClipPlane = 0.05f;
             cam.farClipPlane = 2000f;
             
-            // Replicando la primera imagen: TAA y Dynamic Resolution apagados
             cam.allowMSAA = false;
             cam.allowDynamicResolution = false;
 
@@ -115,21 +114,19 @@ namespace VisualValidator.Editor
                 hdData.volumeLayerMask = -1;
                 hdData.antialiasing = HDAdditionalCameraData.AntialiasingMode.None;
 
-                // Replicando Custom Frame Settings de tu Inspector
                 hdData.customRenderingSettings = true; 
                 
                 var frameSettings = hdData.renderingPathCustomFrameSettings;
                 var mask = hdData.renderingPathCustomFrameSettingsOverrideMask;
 
-                // Forzamos explícitamente el encendido de los pilares que se ven en tus capturas
+                // Eliminado PlanarReflectionProbe para evitar el error CS0117 en Unity 6
                 uint[] requiredFields = {
                     (uint)FrameSettingsField.OpaqueObjects,
                     (uint)FrameSettingsField.TransparentObjects,
                     (uint)FrameSettingsField.Postprocess,
-                    (uint)FrameSettingsField.ExposureControl, // CRUCIAL para evitar el negro
+                    (uint)FrameSettingsField.ExposureControl, 
                     (uint)FrameSettingsField.ShadowMaps,
-                    (uint)FrameSettingsField.ReflectionProbe,
-                    (uint)FrameSettingsField.PlanarReflectionProbe,
+                    (uint)FrameSettingsField.ReflectionProbe, 
                     (uint)FrameSettingsField.SkyReflection,
                     (uint)FrameSettingsField.DirectSpecularLighting
                 };
@@ -143,14 +140,13 @@ namespace VisualValidator.Editor
                 hdData.renderingPathCustomFrameSettings = frameSettings;
                 hdData.renderingPathCustomFrameSettingsOverrideMask = mask;
 
-                // Volumen de emergencia
                 var volume = obj.AddComponent<Volume>();
                 volume.isGlobal = true;
                 volume.priority = 1000;
                 var profile = ScriptableObject.CreateInstance<VolumeProfile>();
                 var exposure = profile.Add<Exposure>();
                 exposure.mode.Override(ExposureMode.Fixed);
-                exposure.fixedExposure.Override(13.0f); // 13 es un valor de día soleado
+                exposure.fixedExposure.Override(13.0f); 
                 volume.profile = profile;
 #endif
             }
