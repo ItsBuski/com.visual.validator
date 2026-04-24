@@ -60,8 +60,6 @@ namespace VisualValidator.Editor
                 Camera cam = camObj.AddComponent<Camera>();
                 
                 SetupCamera(camObj, cam, pipeline);
-                
-                // Forzamos el calentamiento de la GPU antes de la primera foto real
                 WarmUpCamera(cam, pipeline);
 
                 foreach (var p in points)
@@ -103,6 +101,7 @@ namespace VisualValidator.Editor
             cam.nearClipPlane = 0.05f;
             cam.farClipPlane = 2000f;
             cam.allowMSAA = false;
+            cam.allowDynamicResolution = false; // AISLAMIENTO 1: Prevenir conflictos con búferes fijos
 
             if (pipeline == "HDRP")
             {
@@ -110,9 +109,11 @@ namespace VisualValidator.Editor
                 var hdData = obj.AddComponent<HDAdditionalCameraData>();
                 
                 cam.cameraType = CameraType.Game; 
-                
                 hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
                 hdData.volumeLayerMask = -1;
+                
+                // AISLAMIENTO 2: Desactivar TAA para capturas instantáneas precisas
+                hdData.antialiasing = HDAdditionalCameraData.AntialiasingMode.None;
 
                 hdData.customRenderingSettings = true; 
                 
@@ -139,12 +140,10 @@ namespace VisualValidator.Editor
 
         private static void WarmUpCamera(Camera cam, string pipeline)
         {
-            // Creamos un buffer temporal solo para estabilizar la GPU
             RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
             rt.Create();
             cam.targetTexture = rt;
 
-            // HDRP necesita más tiempo para asentar la luz volumétrica y la exposición. URP es más directo.
             int warmUpFrames = pipeline == "HDRP" ? 6 : 2;
             
             for (int i = 0; i < warmUpFrames; i++)
@@ -152,7 +151,6 @@ namespace VisualValidator.Editor
                 cam.Render();
             }
 
-            // Petición vacía a la GPU para asegurar que terminó los cálculos basura
             AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGB24);
             request.WaitForCompletion();
 
