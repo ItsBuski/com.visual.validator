@@ -56,10 +56,36 @@ namespace VisualValidator.Editor
                 var points = UnityEngine.Object.FindObjectsByType<CameraScanPoint>(FindObjectsInactive.Include, FindObjectsSortMode.None);
                 if (points.Length == 0) continue;
 
-                GameObject camObj = new GameObject("ValidatorCam_Core");
-                Camera cam = camObj.AddComponent<Camera>();
+                // TÁCTICA EMPRESARIAL: Secuestrar la cámara de la escena
+                Camera cam = Camera.main;
+                if (cam == null)
+                {
+                    var allCams = UnityEngine.Object.FindObjectsByType<Camera>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+                    if (allCams.Length > 0) cam = allCams[0];
+                }
+
+                bool isHijacked = cam != null;
+                GameObject fallbackObj = null;
+
+                // Solo creamos una si de verdad la escena no tiene ninguna cámara
+                if (!isHijacked)
+                {
+                    fallbackObj = new GameObject("ValidatorCam_Fallback");
+                    cam = fallbackObj.AddComponent<Camera>();
+                    cam.nearClipPlane = 0.05f;
+                    cam.farClipPlane = 2000f;
+                }
+
+                // Guardamos el estado original para dejarlo todo como estaba
+                Vector3 origPos = cam.transform.position;
+                Quaternion origRot = cam.transform.rotation;
+                RenderTexture origTex = cam.targetTexture;
                 
-                SetupCamera(camObj, cam, pipeline);
+                // Dormimos a Cinemachine si existe en tu cámara para que no nos pelee la posición
+                Behaviour cmBrain = cam.GetComponent("CinemachineBrain") as Behaviour;
+                bool brainState = false;
+                if (cmBrain != null) { brainState = cmBrain.enabled; cmBrain.enabled = false; }
+
                 WarmUpCamera(cam, pipeline);
 
                 foreach (var p in points)
@@ -89,67 +115,18 @@ namespace VisualValidator.Editor
                         ExecuteGPUCapture(cam, Path.Combine(outputDir, baseName + "_FrameB.png"), pipeline == "HDRP");
                     }
                 }
-                UnityEngine.Object.DestroyImmediate(camObj);
+
+                // Restauramos la escena a su estado natural
+                cam.transform.position = origPos;
+                cam.transform.rotation = origRot;
+                cam.targetTexture = origTex;
+                if (cmBrain != null) cmBrain.enabled = brainState;
+
+                if (!isHijacked) UnityEngine.Object.DestroyImmediate(fallbackObj);
             }
 
             GraphicsSettings.useScriptableRenderPipelineBatching = srpState;
             EditorApplication.Exit(0);
-        }
-
-        private static void SetupCamera(GameObject obj, Camera cam, string pipeline)
-        {
-            cam.nearClipPlane = 0.05f;
-            cam.farClipPlane = 2000f;
-            
-            cam.allowMSAA = false;
-            cam.allowDynamicResolution = false;
-
-            if (pipeline == "HDRP")
-            {
-#if VISUAL_VALIDATOR_HDRP
-                var hdData = obj.AddComponent<HDAdditionalCameraData>();
-                
-                cam.cameraType = CameraType.Game; 
-                hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
-                hdData.volumeLayerMask = -1;
-                hdData.antialiasing = HDAdditionalCameraData.AntialiasingMode.None;
-
-                hdData.customRenderingSettings = true; 
-                
-                var frameSettings = hdData.renderingPathCustomFrameSettings;
-                var mask = hdData.renderingPathCustomFrameSettingsOverrideMask;
-
-                // Eliminado PlanarReflectionProbe para evitar el error CS0117 en Unity 6
-                uint[] requiredFields = {
-                    (uint)FrameSettingsField.OpaqueObjects,
-                    (uint)FrameSettingsField.TransparentObjects,
-                    (uint)FrameSettingsField.Postprocess,
-                    (uint)FrameSettingsField.ExposureControl, 
-                    (uint)FrameSettingsField.ShadowMaps,
-                    (uint)FrameSettingsField.ReflectionProbe, 
-                    (uint)FrameSettingsField.SkyReflection,
-                    (uint)FrameSettingsField.DirectSpecularLighting
-                };
-
-                foreach (uint field in requiredFields)
-                {
-                    mask.mask[field] = true;
-                    frameSettings.SetEnabled((FrameSettingsField)field, true);
-                }
-                
-                hdData.renderingPathCustomFrameSettings = frameSettings;
-                hdData.renderingPathCustomFrameSettingsOverrideMask = mask;
-
-                var volume = obj.AddComponent<Volume>();
-                volume.isGlobal = true;
-                volume.priority = 1000;
-                var profile = ScriptableObject.CreateInstance<VolumeProfile>();
-                var exposure = profile.Add<Exposure>();
-                exposure.mode.Override(ExposureMode.Fixed);
-                exposure.fixedExposure.Override(13.0f); 
-                volume.profile = profile;
-#endif
-            }
         }
 
         private static void WarmUpCamera(Camera cam, string pipeline)
@@ -158,12 +135,9 @@ namespace VisualValidator.Editor
             rt.Create();
             cam.targetTexture = rt;
 
-            int warmUpFrames = pipeline == "HDRP" ? 6 : 2;
-            
-            for (int i = 0; i < warmUpFrames; i++)
-            {
-                cam.Render();
-            }
+            // Calentamiento crítico para estabilizar la exposición y luces volumétricas de tu escena
+            int warmUpFrames = pipeline == "HDRP" ? 8 : 2;
+            for (int i = 0; i < warmUpFrames; i++) { cam.Render(); }
 
             AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGB24);
             request.WaitForCompletion();
@@ -181,7 +155,7 @@ namespace VisualValidator.Editor
             cam.targetTexture = rt;
             
             cam.Render();
-            if(isHDRP) cam.Render();
+            if (isHDRP) cam.Render(); // Doble renderizado para asentar el frame actual
 
             AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGB24);
             request.WaitForCompletion();
