@@ -106,19 +106,21 @@ namespace VisualValidator.Editor
 #if VISUAL_VALIDATOR_HDRP
                 var hdData = obj.AddComponent<HDAdditionalCameraData>();
                 
-                // Unity 6: cameraType está en el componente Camera
+                // Unity 6: cameraType está en el componente base de la cámara
                 cam.cameraType = CameraType.Game; 
                 
                 hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
                 hdData.volumeLayerMask = -1;
 
-                // CORRECCIÓN API UNITY 6:
-                hdData.hasCustomRenderSettings = true;
-                FrameSettings frameSettings = hdData.renderingPathCustomFrameSettings;
-                FrameSettingsOverrideMask mask = hdData.renderingPathCustomFrameSettingsOverrideMask;
+                // CORRECCIONES PARA UNITY 6 (6000.x):
+                hdData.customRenderingSettings = true; 
+                
+                // Usamos 'var' para evitar problemas de referencias con los structs cambiantes de HDRP
+                var frameSettings = hdData.renderingPathCustomFrameSettings;
+                var mask = hdData.renderingPathCustomFrameSettingsOverrideMask;
 
-                // Activamos Post-procesado en la máscara de overrides
-                mask.mask[(int)FrameSettingsField.Postprocess] = true;
+                // La máscara interna es un BitArray128, requiere casteo a uint
+                mask.mask[(uint)FrameSettingsField.Postprocess] = true;
                 frameSettings.SetEnabled(FrameSettingsField.Postprocess, true);
                 
                 hdData.renderingPathCustomFrameSettings = frameSettings;
@@ -143,7 +145,7 @@ namespace VisualValidator.Editor
             rt.Create();
             cam.targetTexture = rt;
             
-            // Warm-up para HDRP (mínimo 2 renders para estabilizar exposición)
+            // Warm-up para HDRP
             cam.Render();
             if(isHDRP) cam.Render();
 
