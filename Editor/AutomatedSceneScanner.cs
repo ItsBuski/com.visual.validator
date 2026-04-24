@@ -58,6 +58,17 @@ namespace VisualValidator.Editor
 
                 GameObject camObj = new GameObject("ValidatorCam_Headless");
                 Camera cam = camObj.AddComponent<Camera>();
+                
+                Light flashLight = null;
+                if (pipeline == "HDRP")
+                {
+                    GameObject lightObj = new GameObject("Emergency_Light");
+                    lightObj.transform.SetParent(camObj.transform);
+                    flashLight = lightObj.AddComponent<Light>();
+                    flashLight.type = LightType.Directional;
+                    flashLight.intensity = 10000f; // High intensity for HDRP physical units
+                }
+
                 SetupCamera(camObj, cam, pipeline);
 
                 foreach (var p in points)
@@ -100,29 +111,32 @@ namespace VisualValidator.Editor
             cam.farClipPlane = 2000f;
             cam.useOcclusionCulling = false;
             cam.allowMSAA = false;
+            cam.allowDynamicResolution = false;
 
             if (pipeline == "HDRP")
             {
 #if VISUAL_VALIDATOR_HDRP
                 var hdData = obj.AddComponent<HDAdditionalCameraData>();
                 hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
-                hdData.volumeLayerMask = -1; 
+                hdData.volumeLayerMask = -1;
+                hdData.probeLayerMask = -1;
 
-                var volObj = new GameObject("HDRP_Exposure_Override");
+                var volObj = new GameObject("HDRP_Internal_Fix");
                 volObj.transform.SetParent(obj.transform);
                 var volume = volObj.AddComponent<Volume>();
                 volume.isGlobal = true;
-                volume.priority = 999;
+                volume.priority = 1000;
                 
                 var profile = ScriptableObject.CreateInstance<VolumeProfile>();
+                
                 var exposure = profile.Add<Exposure>();
                 exposure.mode.Override(ExposureMode.Fixed);
                 exposure.fixedExposure.Override(13.0f);
-                profile.Add<VisualEnvironment>(); 
                 
+                var env = profile.Add<VisualEnvironment>();
+                env.skyType.Override((int)SkyType.PhysicallyBased);
+
                 volume.profile = profile;
-#else
-                Debug.LogError("[Visual Validator] HDRP Scan requested but HDRP package is not installed.");
 #endif
             }
         }
@@ -130,21 +144,13 @@ namespace VisualValidator.Editor
         private static void CaptureAndSave(Camera cam, string path, bool isHDRP)
         {
             RenderTextureFormat format = isHDRP ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.ARGB32;
-            RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, format);
+            RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, format, RenderTextureReadWrite.Linear);
             rt.Create();
             cam.targetTexture = rt;
 
-            if (isHDRP)
+            int warmUpFrames = isHDRP ? 16 : 2;
+            for (int i = 0; i < warmUpFrames; i++)
             {
-                cam.Render();
-                cam.Render();
-                GL.Clear(true, true, Color.black);
-                cam.Render();
-            }
-            else
-            {
-                cam.Render();
-                GL.Clear(true, true, Color.black);
                 cam.Render();
             }
 
