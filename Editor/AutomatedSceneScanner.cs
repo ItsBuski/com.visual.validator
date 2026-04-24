@@ -41,7 +41,7 @@ namespace VisualValidator.Editor
             }
             else Directory.CreateDirectory(outputDir);
 
-            // CORRECCIÓN: Nombre de propiedad correcto en Unity 6
+            // Corregido el nombre de la propiedad en Unity 6
             bool srpState = GraphicsSettings.useScriptableRenderPipelineBatching;
             GraphicsSettings.useScriptableRenderPipelineBatching = false;
 
@@ -107,18 +107,18 @@ namespace VisualValidator.Editor
 #if VISUAL_VALIDATOR_HDRP
                 var hdData = obj.AddComponent<HDAdditionalCameraData>();
                 
-                // En Unity 6, el tipo de cámara se define en el componente base de Unity
+                // IMPORTANTE: En Unity 6, el tipo de cámara se asigna al componente base Camera
                 cam.cameraType = CameraType.Game; 
                 
                 hdData.clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
                 hdData.volumeLayerMask = -1;
 
-                // Acceso profesional a FrameSettings en Unity 6 para forzar Post-Procesado
-                hdData.hasCustomRenderSettings = true;
+                // Acceso a FrameSettings para Unity 6 / HDRP 17
+                // No necesitamos el booleano 'customRenderSettings' si configuramos el mask directamente
                 var frameSettings = hdData.renderingPathCustomFrameSettings;
                 var mask = hdData.renderingPathCustomFrameSettingsOverrideMask;
 
-                // Forzamos explícitamente que el Post-proceso esté activo
+                // Activamos explícitamente el Post-proceso en el mask de overrides
                 mask.mask[(int)FrameSettingsField.Postprocess] = true;
                 frameSettings.SetEnabled(FrameSettingsField.Postprocess, true);
                 
@@ -130,11 +130,14 @@ namespace VisualValidator.Editor
 
         private static void ExecuteGPUCapture(Camera cam, string path)
         {
+            // Forzamos sRGB y ARGB32 para que HDRP comprima el color correctamente
             RenderTexture rt = RenderTexture.GetTemporary(1920, 1080, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+            rt.Create();
             cam.targetTexture = rt;
+            
             cam.Render();
 
-            // Sincronización asíncrona profesional: espera a que la GPU termine el frame
+            // Sincronización profesional con AsyncGPUReadback
             AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGB24);
             request.WaitForCompletion();
 
@@ -148,10 +151,11 @@ namespace VisualValidator.Editor
             }
             else
             {
-                Debug.LogError($"[Visual Validator] GPU Readback failed: {path}");
+                Debug.LogError($"[Visual Validator] GPU Readback error: {path}");
             }
 
             cam.targetTexture = null;
+            RenderTexture.active = null;
             RenderTexture.ReleaseTemporary(rt);
             GL.Flush();
         }
