@@ -1,6 +1,6 @@
 # Visual Validator for Unity
 
-**Visual Validator** is a high-caliber automation pipeline designed for massive visual bug detection (Z-Fighting, Missing Shaders/Magenta textures, Empty Scenes) within Unity projects. It utilizes a hybrid workflow combining the Unity engine with **OpenCV** image analysis.
+**Visual Validator** is a high-caliber automation pipeline designed for massive visual bug detection (Missing Shaders/Magenta textures) within Unity projects. It utilizes a hybrid workflow combining the Unity engine with **OpenCV** image analysis.
 
 ---
 
